@@ -1,9 +1,9 @@
-use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
-use windows::core::{w, PCSTR, PCWSTR};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+use windows::core::{PCSTR, PCWSTR, w};
 
 pub type MpvHandle = c_void;
 
@@ -72,7 +72,7 @@ impl MpvApi {
                 return Err(
                     "mpv-2.dll not found. Please place mpv-2.dll in the Arc Paper directory."
                         .to_string(),
-                )
+                );
             }
         };
 
@@ -159,8 +159,8 @@ impl MpvPlayer {
 
         // 6. Pre-fetch demuxer buffer for instant seamless looping without disk I/O spikes
         player.set_option("cache", "no")?;
-        player.set_option("demuxer-max-bytes", "4194304")?;      // 4 MB buffer
-        player.set_option("demuxer-max-back-bytes", "1048576")?;  // 1 MB back buffer
+        player.set_option("demuxer-max-bytes", "4194304")?; // 4 MB buffer
+        player.set_option("demuxer-max-back-bytes", "1048576")?; // 1 MB back buffer
         player.set_option("demuxer-readahead-secs", "1.0")?;
         player.set_option("vd-lavc-threads", "1")?;
         let _ = player.set_option("vd-lavc-dr", "yes");
@@ -400,7 +400,10 @@ mod tests {
         let files = std::fs::read_dir("D:\\Arc Paper\\SavedWallpapers").unwrap();
         for entry in files.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp4")) {
+            if path
+                .extension()
+                .map_or(false, |ext| ext.eq_ignore_ascii_case("mp4"))
+            {
                 let res = play_wallpaper(&path.to_string_lossy());
                 println!("play_wallpaper result for {:?}: {:?}", path, res);
                 assert!(res.is_ok());
@@ -409,5 +412,3 @@ mod tests {
         }
     }
 }
-
-

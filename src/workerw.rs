@@ -1,8 +1,8 @@
-use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, FindWindowW, SendMessageTimeoutW, SMTO_NORMAL,
+    FindWindowExW, FindWindowW, SMTO_NORMAL, SendMessageTimeoutW,
 };
+use windows::core::{PCWSTR, w};
 
 /// Attempts to attach the current thread to the interactive "Default" desktop
 /// if the process is running in a secondary window station or sandbox environment.
@@ -47,7 +47,9 @@ pub fn get_shelldll_defview_hwnd(progman: HWND) -> HWND {
     unsafe {
         // 1. Search inside Progman (typical in Windows 11 24H2 / 25H2)
         if !progman.0.is_null() {
-            if let Ok(h) = FindWindowExW(Some(progman), None, w!("SHELLDLL_DefView"), PCWSTR::null()) {
+            if let Ok(h) =
+                FindWindowExW(Some(progman), None, w!("SHELLDLL_DefView"), PCWSTR::null())
+            {
                 if !h.0.is_null() {
                     return h;
                 }
@@ -55,14 +57,21 @@ pub fn get_shelldll_defview_hwnd(progman: HWND) -> HWND {
         }
 
         // 2. Fallback search: iterate top-level WorkerW windows
-        let mut top_worker = FindWindowExW(None, None, w!("WorkerW"), PCWSTR::null()).unwrap_or(HWND::default());
+        let mut top_worker =
+            FindWindowExW(None, None, w!("WorkerW"), PCWSTR::null()).unwrap_or(HWND::default());
         while !top_worker.0.is_null() {
-            if let Ok(child_shell) = FindWindowExW(Some(top_worker), None, w!("SHELLDLL_DefView"), PCWSTR::null()) {
+            if let Ok(child_shell) = FindWindowExW(
+                Some(top_worker),
+                None,
+                w!("SHELLDLL_DefView"),
+                PCWSTR::null(),
+            ) {
                 if !child_shell.0.is_null() {
                     return child_shell;
                 }
             }
-            top_worker = FindWindowExW(None, Some(top_worker), w!("WorkerW"), PCWSTR::null()).unwrap_or(HWND::default());
+            top_worker = FindWindowExW(None, Some(top_worker), w!("WorkerW"), PCWSTR::null())
+                .unwrap_or(HWND::default());
         }
 
         HWND::default()
@@ -100,20 +109,29 @@ fn get_workerw_from_progman(progman: HWND) -> HWND {
         );
 
         // Case A: Windows 11 (24H2 / 25H2) where WorkerW is a child inside Progman:
-        if let Ok(worker_in_progman) = FindWindowExW(Some(progman), None, w!("WorkerW"), PCWSTR::null()) {
+        if let Ok(worker_in_progman) =
+            FindWindowExW(Some(progman), None, w!("WorkerW"), PCWSTR::null())
+        {
             if !worker_in_progman.0.is_null() {
                 return worker_in_progman;
             }
         }
 
         // Case B: Windows 10 / earlier Windows 11 where WorkerW is a sibling of the WorkerW hosting SHELLDLL_DefView:
-        let mut top_worker = FindWindowExW(None, None, w!("WorkerW"), PCWSTR::null()).unwrap_or(HWND::default());
+        let mut top_worker =
+            FindWindowExW(None, None, w!("WorkerW"), PCWSTR::null()).unwrap_or(HWND::default());
         while !top_worker.0.is_null() {
-            let child_shell = FindWindowExW(Some(top_worker), None, w!("SHELLDLL_DefView"), PCWSTR::null())
-                .unwrap_or(HWND::default());
+            let child_shell = FindWindowExW(
+                Some(top_worker),
+                None,
+                w!("SHELLDLL_DefView"),
+                PCWSTR::null(),
+            )
+            .unwrap_or(HWND::default());
             if !child_shell.0.is_null() {
-                let next_worker = FindWindowExW(None, Some(top_worker), w!("WorkerW"), PCWSTR::null())
-                    .unwrap_or(HWND::default());
+                let next_worker =
+                    FindWindowExW(None, Some(top_worker), w!("WorkerW"), PCWSTR::null())
+                        .unwrap_or(HWND::default());
                 if !next_worker.0.is_null() {
                     return next_worker;
                 }
@@ -123,7 +141,8 @@ fn get_workerw_from_progman(progman: HWND) -> HWND {
         }
 
         // Case C: Any top-level WorkerW
-        let any_worker = FindWindowExW(None, None, w!("WorkerW"), PCWSTR::null()).unwrap_or(HWND::default());
+        let any_worker =
+            FindWindowExW(None, None, w!("WorkerW"), PCWSTR::null()).unwrap_or(HWND::default());
         if !any_worker.0.is_null() {
             return any_worker;
         }

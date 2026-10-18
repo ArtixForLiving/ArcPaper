@@ -1,22 +1,26 @@
+#![windows_subsystem = "windows"]
+
 mod player;
 mod workerw;
 
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
 use tao::event::Event;
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
-use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
+use tray_icon::menu::{
+    CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu,
+};
 use tray_icon::{Icon, TrayIconBuilder};
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClassNameW, GetForegroundWindow, GetSystemMetrics,
-    GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
-    SetWindowLongPtrW, SetWindowPos, GWL_STYLE, SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE,
-    SWP_NOZORDER, SWP_SHOWWINDOW, WS_CLIPCHILDREN,
+    GWL_STYLE, GetClassNameW, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW,
+    GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed, SM_CXSCREEN,
+    SM_CYSCREEN, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos,
+    WS_CLIPCHILDREN,
 };
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
@@ -38,8 +42,8 @@ fn log_msg(msg: &str) {
 /// Trims the process working set, releasing unneeded driver initialization and libmpv DLL pages.
 fn trim_working_set() {
     unsafe {
-        use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
         use windows::Win32::System::ProcessStatus::K32EmptyWorkingSet;
+        use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
         let proc = GetCurrentProcess();
         let _ = SetProcessWorkingSetSize(proc, usize::MAX, usize::MAX);
         let _ = K32EmptyWorkingSet(proc);
@@ -51,6 +55,48 @@ fn delayed_trim(delay_ms: u64) {
         std::thread::sleep(Duration::from_millis(delay_ms));
         trim_working_set();
     });
+}
+
+// ─── Windows Auto-Start Registry ──────────────────────────────────────────────
+
+const RUN_KEY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+const APP_REG_NAME: &str = "ArcPaper";
+
+/// Checks if ArcPaper is registered in HKCU Run key
+fn is_autostart_enabled() -> bool {
+    let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+    if let Ok(run_key) = hkcu.open_subkey_with_flags(RUN_KEY_PATH, winreg::enums::KEY_READ) {
+        let val: Result<String, _> = run_key.get_value(APP_REG_NAME);
+        val.is_ok()
+    } else {
+        false
+    }
+}
+
+/// Registers the current executable path into HKCU Run key
+fn enable_autostart() -> Result<(), Box<dyn std::error::Error>> {
+    let current_exe = std::env::current_exe()?;
+    let exe_path_str = current_exe.to_string_lossy().to_string();
+    let quoted_path = format!("\"{}\"", exe_path_str);
+
+    let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+    let (run_key, _) = hkcu.create_subkey(RUN_KEY_PATH)?;
+    run_key.set_value(APP_REG_NAME, &quoted_path)?;
+    log_msg(&format!(
+        "[ArcPaper] Registered auto-start in registry: {}",
+        quoted_path
+    ));
+    Ok(())
+}
+
+/// Removes the ArcPaper entry from HKCU Run key
+fn disable_autostart() -> Result<(), Box<dyn std::error::Error>> {
+    let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+    if let Ok(run_key) = hkcu.open_subkey_with_flags(RUN_KEY_PATH, winreg::enums::KEY_WRITE) {
+        let _ = run_key.delete_value(APP_REG_NAME);
+        log_msg("[ArcPaper] Unregistered auto-start from registry.");
+    }
+    Ok(())
 }
 
 // ─── Tray Icon Generator ──────────────────────────────────────────────────────
@@ -180,9 +226,15 @@ fn save_config(config: &AppConfig) {
     let path = get_config_path();
     if let Ok(json) = serde_json::to_string_pretty(config) {
         if let Err(e) = std::fs::write(&path, json) {
-            log_msg(&format!("[ArcPaper] Error saving config to {:?}: {:?}", path, e));
+            log_msg(&format!(
+                "[ArcPaper] Error saving config to {:?}: {:?}",
+                path, e
+            ));
         } else {
-            log_msg(&format!("[ArcPaper] Successfully saved config to {:?}", path));
+            log_msg(&format!(
+                "[ArcPaper] Successfully saved config to {:?}",
+                path
+            ));
         }
     }
 }
@@ -196,10 +248,16 @@ struct TrayControls {
     fit_map: HashMap<MenuId, &'static str>,
     brightness_map: HashMap<MenuId, u32>,
     wallpaper_map: HashMap<MenuId, String>,
+    autostart_id: MenuId,
+    autostart_item: CheckMenuItem,
     exit_id: MenuId,
 }
 
-fn build_tray_menu(saved_wallpapers_dir: &Path, is_paused: bool, active_wp: Option<&str>) -> (Menu, TrayControls) {
+fn build_tray_menu(
+    saved_wallpapers_dir: &Path,
+    is_paused: bool,
+    active_wp: Option<&str>,
+) -> (Menu, TrayControls) {
     let menu = Menu::new();
 
     // 1. Upload New Wallpaper
@@ -219,7 +277,7 @@ fn build_tray_menu(saved_wallpapers_dir: &Path, is_paused: bool, active_wp: Opti
         let _ = apply_submenu.append(&empty_item);
     } else {
         for filename in mp4_files {
-            let label = if active_wp.map_or(false, |act| act == filename) {
+            let label = if active_wp.is_some_and(|act| act == filename) {
                 format!("* {}", filename)
             } else {
                 filename.clone()
@@ -293,7 +351,13 @@ fn build_tray_menu(saved_wallpapers_dir: &Path, is_paused: bool, active_wp: Opti
 
     let _ = menu.append(&PredefinedMenuItem::separator());
 
-    // 8. Exit
+    // 8. Auto-start
+    let autostart_enabled = is_autostart_enabled();
+    let autostart_item = CheckMenuItem::new("Start with Windows", true, autostart_enabled, None);
+    let autostart_id = autostart_item.id().clone();
+    let _ = menu.append(&autostart_item);
+
+    // 9. Exit
     let exit_item = MenuItem::new("Exit ArcPaper", true, None);
     let exit_id = exit_item.id().clone();
     let _ = menu.append(&exit_item);
@@ -305,6 +369,8 @@ fn build_tray_menu(saved_wallpapers_dir: &Path, is_paused: bool, active_wp: Opti
         fit_map,
         brightness_map,
         wallpaper_map,
+        autostart_id,
+        autostart_item,
         exit_id,
     };
 
@@ -320,7 +386,12 @@ enum UserEvent {
 
 // ─── Smart Auto-Pause Helper ──────────────────────────────────────────────────
 
-unsafe fn is_foreground_covering_screen(fg: HWND, screen_w: i32, screen_h: i32, our_pid: u32) -> bool {
+unsafe fn is_foreground_covering_screen(
+    fg: HWND,
+    screen_w: i32,
+    screen_h: i32,
+    our_pid: u32,
+) -> bool {
     unsafe {
         if fg.0.is_null() {
             return false;
@@ -358,7 +429,8 @@ unsafe fn is_foreground_covering_screen(fg: HWND, screen_w: i32, screen_h: i32, 
 
         let mut rect = RECT::default();
         if GetWindowRect(fg, &mut rect).is_ok() {
-            if rect.left <= 0 && rect.top <= 0 && rect.right >= screen_w && rect.bottom >= screen_h {
+            if rect.left <= 0 && rect.top <= 0 && rect.right >= screen_w && rect.bottom >= screen_h
+            {
                 return true;
             }
         }
@@ -370,13 +442,20 @@ unsafe fn is_foreground_covering_screen(fg: HWND, screen_w: i32, screen_h: i32, 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 fn main() {
+    // Set working directory to the directory where this executable resides
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let _ = std::env::set_current_dir(exe_dir);
+        }
+    }
+
     // 0. Force Per-Monitor DPI Awareness (V2) at the very start of main()
     unsafe {
         use windows::Win32::UI::HiDpi::{
-            SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
         };
         let res = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        if let Err(_) = res {
+        if res.is_err() {
             use windows::Win32::UI::WindowsAndMessaging::SetProcessDPIAware;
             let _ = SetProcessDPIAware();
         }
@@ -384,9 +463,9 @@ fn main() {
 
     // 0. Single instance enforcement (exit immediately if another instance is already running)
     let _instance_mutex = unsafe {
-        use windows::core::w;
-        use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+        use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
         use windows::Win32::System::Threading::CreateMutexW;
+        use windows::core::w;
 
         let handle = CreateMutexW(None, true, w!("ArcPaper_SingleInstance_Mutex"));
         if GetLastError() == ERROR_ALREADY_EXISTS {
@@ -408,13 +487,12 @@ fn main() {
     }));
 
     log_msg("==================================================");
-    log_msg("[ArcPaper] Starting ArcPaper Native Wallpaper Engine (Tahap 3)");
+    log_msg("[ArcPaper] Starting ArcPaper Native Wallpaper Engine");
     log_msg("==================================================");
 
     // Read exact physical screen resolution with DPI awareness active
-    let (screen_w, screen_h) = unsafe {
-        (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN))
-    };
+    let (screen_w, screen_h) =
+        unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
     log_msg(&format!(
         "[ArcPaper] Per-Monitor DPI Aware active. Physical screen resolution: {}x{}",
         screen_w, screen_h
@@ -423,10 +501,13 @@ fn main() {
     // Set process priority class to BELOW_NORMAL_PRIORITY_CLASS to smooth background CPU usage and prevent micro-spikes
     unsafe {
         use windows::Win32::System::Threading::{
-            GetCurrentProcess, SetPriorityClass, BELOW_NORMAL_PRIORITY_CLASS,
+            BELOW_NORMAL_PRIORITY_CLASS, GetCurrentProcess, SetPriorityClass,
         };
         let res = SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
-        log_msg(&format!("[ArcPaper] SetPriorityClass(BELOW_NORMAL_PRIORITY_CLASS) result: {:?}", res));
+        log_msg(&format!(
+            "[ArcPaper] SetPriorityClass(BELOW_NORMAL_PRIORITY_CLASS) result: {:?}",
+            res
+        ));
     }
 
     // 1. Ensure SavedWallpapers folder exists
@@ -439,12 +520,19 @@ fn main() {
 
     // 2. Hook desktop WorkerW layer and size directly to physical screen resolution
     let workerw_hwnd = workerw::get_desktop_workerw_hwnd();
-    log_msg(&format!("[ArcPaper] Desktop WorkerW HWND: {:?}", workerw_hwnd));
+    log_msg(&format!(
+        "[ArcPaper] Desktop WorkerW HWND: {:?}",
+        workerw_hwnd
+    ));
 
     if !workerw_hwnd.0.is_null() {
         unsafe {
             let p_style = GetWindowLongPtrW(workerw_hwnd, GWL_STYLE) as u32;
-            let _ = SetWindowLongPtrW(workerw_hwnd, GWL_STYLE, (p_style | WS_CLIPCHILDREN.0) as isize);
+            let _ = SetWindowLongPtrW(
+                workerw_hwnd,
+                GWL_STYLE,
+                (p_style | WS_CLIPCHILDREN.0) as isize,
+            );
             let _ = SetWindowPos(
                 workerw_hwnd,
                 None,
@@ -466,7 +554,9 @@ fn main() {
     let mpv_target_wid = if !progman_current.0.is_null() {
         workerw_hwnd
     } else {
-        log_msg("[ArcPaper] Secondary/sandbox session: skipping cross-desktop WID attachment for MPV safety.");
+        log_msg(
+            "[ArcPaper] Secondary/sandbox session: skipping cross-desktop WID attachment for MPV safety.",
+        );
         HWND::default()
     };
 
@@ -549,11 +639,17 @@ fn main() {
 
     if let Some(name) = video_to_play {
         let video_path = saved_wallpapers_dir.join(&name);
-        log_msg(&format!("[ArcPaper] Auto-playing wallpaper on startup: {:?}", video_path));
+        log_msg(&format!(
+            "[ArcPaper] Auto-playing wallpaper on startup: {:?}",
+            video_path
+        ));
         if let Err(e) = player::change_wallpaper(&video_path.to_string_lossy()) {
             log_msg(&format!("[ArcPaper] MPV change_wallpaper error: {}", e));
         } else {
-            log_msg(&format!("[ArcPaper] MPV playback started for: {:?}", video_path));
+            log_msg(&format!(
+                "[ArcPaper] MPV playback started for: {:?}",
+                video_path
+            ));
         }
         let state = wp_state.borrow();
         let _ = player::set_speed(state.speed);
@@ -622,7 +718,7 @@ fn main() {
         let _keep_tray = &tray_icon;
 
         // Drain tray icon events safely (no explorer or external commands)
-        while let Ok(_) = tray_icon::TrayIconEvent::receiver().try_recv() {}
+        while tray_icon::TrayIconEvent::receiver().try_recv().is_ok() {}
 
         match event {
             // ── Smart Auto-Pause Event ───────────────────────────────────────
@@ -770,6 +866,38 @@ fn main() {
                     tray_icon.set_menu(Some(Box::new(new_menu)));
                     controls = new_controls;
 
+                } else if event_id == controls.autostart_id {
+                    let currently_enabled = is_autostart_enabled();
+                    if currently_enabled {
+                        if let Err(e) = disable_autostart() {
+                            log_msg(&format!("[ArcPaper] Error disabling auto-start: {:?}", e));
+                        } else {
+                            log_msg("[ArcPaper] Auto-start with Windows disabled.");
+                        }
+                    } else {
+                        if let Err(e) = enable_autostart() {
+                            log_msg(&format!("[ArcPaper] Error enabling auto-start: {:?}", e));
+                        } else {
+                            log_msg("[ArcPaper] Auto-start with Windows enabled.");
+                        }
+                    }
+
+                    let new_status = is_autostart_enabled();
+                    controls.autostart_item.set_checked(new_status);
+
+                    let state = wp_state.borrow();
+                    let is_paused = state.is_manually_paused;
+                    let active_name = state.active_video.clone();
+                    drop(state);
+
+                    let (new_menu, new_controls) = build_tray_menu(
+                        &saved_wallpapers_dir,
+                        is_paused,
+                        active_name.as_deref(),
+                    );
+                    tray_icon.set_menu(Some(Box::new(new_menu)));
+                    controls = new_controls;
+
                 } else if event_id == controls.exit_id {
                     log_msg("[ArcPaper] Exit requested. Shutting down cleanly...");
                     *control_flow = ControlFlow::Exit;
@@ -795,5 +923,33 @@ mod tests {
     #[test]
     fn test_trim_working_set() {
         trim_working_set();
+    }
+
+    #[test]
+    fn test_check_menu_item() {
+        use tray_icon::menu::CheckMenuItem;
+        let item = CheckMenuItem::new("Start with Windows", true, true, None);
+        assert!(item.is_checked());
+        item.set_checked(false);
+        assert!(!item.is_checked());
+    }
+
+    #[test]
+    fn test_autostart_registry_cycle() {
+        // Record initial state
+        let initial = is_autostart_enabled();
+
+        // Test enable
+        assert!(enable_autostart().is_ok());
+        assert!(is_autostart_enabled());
+
+        // Test disable
+        assert!(disable_autostart().is_ok());
+        assert!(!is_autostart_enabled());
+
+        // Restore initial state if it was enabled
+        if initial {
+            let _ = enable_autostart();
+        }
     }
 }

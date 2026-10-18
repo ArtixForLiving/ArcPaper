@@ -1,4 +1,6 @@
 /target
+/dist
+*.zip
 *.dll
 *.dll.a
 *.pdb
