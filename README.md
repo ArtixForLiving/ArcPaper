@@ -1,134 +1,107 @@
-# ArcPaper 🎬⚡
+# ArcPaper
 
-> An ultra-lightweight, high-performance native video wallpaper engine for Windows, written in Rust and powered by `libmpv` Direct3D 11 hardware acceleration.
+<p align="center">
+  <strong>Ultra-lightweight, hardware-accelerated Windows live wallpaper engine built with Rust and libmpv.</strong>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-2024_Edition-orange.svg?logo=rust)](https://www.rust-lang.org)
-[![Platform](https://img.shields.io/badge/Platform-Windows_10%20%2F%2011-0078D6.svg?logo=windows)](https://microsoft.com/windows)
-[![Memory Usage](https://img.shields.io/badge/Memory_Usage-~10--20_MB-brightgreen.svg)]()
-[![Zero WebView2](https://img.shields.io/badge/Web_Runtimes-0_(Native_Only)-success.svg)]()
+<p align="center">
+  <a href="https://github.com/ArtixForLiving/ArcPaper/releases"><img src="https://img.shields.io/github/v/release/ArtixForLiving/ArcPaper?color=00f2fe&style=for-the-badge" alt="Release v1.0.0" /></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Language-Rust%202024-orange.svg?style=for-the-badge&logo=rust" alt="Rust" /></a>
+  <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010-0078d4.svg?style=for-the-badge&logo=windows" alt="Windows" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-10b981.svg?style=for-the-badge" alt="License MIT" /></a>
+</p>
+
+---
+
+## ⚡ Overview
+
+**ArcPaper** is a high-performance Windows live wallpaper engine engineered with **Rust**, **Win32 API**, and **libmpv**. Unlike bloated wallpaper applications that consume hundreds of megabytes of RAM and multiple CPU cores, ArcPaper attaches directly to the Windows desktop shell (`WorkerW`) with **hardware-accelerated zero-copy Direct3D 11 rendering**, delivering butter-smooth 60 FPS playback with virtually zero resource footprint.
 
 ---
 
 ## ✨ Features
 
-- **⚡ Ultra-Low Resource Footprint**:
-  - Consumes only **~10 – 20 MB RAM** while actively playing (dropping below 10 MB when paused).
-  - Minimal CPU usage (< 2%) via pure Direct3D 11 GPU zero-copy hardware decoding (`d3d11va`).
-  - **Zero WebView2 / Chromium instances** — completely native architecture.
-- **🖥️ Desktop WorkerW Integration**:
-  - Seamlessly renders behind Windows desktop icons using native Shell messaging (`Progman` / `WorkerW`).
-  - Supports full desktop interaction without interfering with desktop icons or shortcuts.
-- **🔍 Per-Monitor DPI Aware V2**:
-  - Native pixel-perfect rendering for 1080p, 2K, and 4K displays.
-  - No blurry DWM stretching or scaling artifacts on 125%/150% Windows display scaling.
-- **🔄 True 100% Seamless Looping**:
-  - Uses `libmpv`'s internal zero-delay loop engine with `display-desync`, `hr-seek=no`, and pre-fetched demuxer buffers.
-  - Zero stutter, zero audio/video desync, and no disk I/O spikes when reaching 00:00.
-- **⏸️ Smart Auto-Pause**:
-  - Automatically pauses video playback and flushes working set memory when any fullscreen application or maximized game covers the screen.
-  - Resumes instantly when the desktop becomes visible again.
-- **🎛️ System Tray Quick Controls**:
-  - **Wallpaper Switcher**: Switch between saved wallpapers on the fly.
-  - **Upload Wallpaper**: Add any `.mp4` file via native Windows file picker.
-  - **Playback Speed**: Adjust speed to `0.5x`, `1.0x`, or `1.5x`.
-  - **Screen Fit Modes**: `Cover` (fill & crop), `Fill` (stretch), and `Contain` (letterbox).
-  - **Brightness Control**: Quick dimming presets (`100%`, `75%`, `50%`).
-  - **Manual Pause / Resume**: Freeze playback at any time.
-- **🛡️ Single Instance Protected**:
-  - Enforced via Windows Kernel Named Mutex to prevent multiple processes from conflicting.
+- **🚀 Ultra-Low Resource Consumption**
+  - Consumes **< 10 MB RAM** in idle/paused state and minimal memory during 4K/60FPS playback.
+  - Typical **0–1% CPU usage** via direct GPU hardware video decoding (`d3d11va`).
+
+- **🎮 Smart Auto-Pause for Games & Fullscreen Apps**
+  - Automatically suspends video rendering and trims memory working set when any fullscreen or maximized window (e.g., games, browsers, IDEs) covers the screen.
+  - Instantly resumes playback when returning to the desktop.
+
+- **🔄 Seamless Gapless Video Looping**
+  - Utilizes internal libmpv zero-stutter frame buffer streaming (`loadfile <path> replace`).
+  - No black frames, micro-stutters, or audio glitches when transitioning or switching wallpapers.
+
+- **💎 Per-Monitor High-DPI Crystal Clear Rendering**
+  - Native Per-Monitor V2 DPI awareness ensures crisp physical pixel mapping across high-resolution displays (1080p, 1440p, 4K+).
+
+- **🖱️ System Tray Control Center**
+  - Right-click tray menu provides instant access to:
+    - **Upload New Wallpaper** (file picker dialog)
+    - **Select Active Wallpaper** (switch on-the-fly with live active indicators)
+    - **Pause / Resume Wallpaper**
+    - **Playback Speed** (0.5x, 1.0x, 1.5x)
+    - **Screen Fit Mode** (Cover, Fill, Contain)
+    - **Brightness Control** (100%, 75%, 50%)
+    - **Start with Windows** (one-click toggle for automatic startup)
+
+- **⚙️ Windows Auto-Start Integration**
+  - Cleanly registers or unregisters from Windows Registry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) without external background services.
 
 ---
 
-## 📊 Performance Comparison
+## 🛠️ Tech Stack
 
-| Feature / Metric | Typical Electron/Web Wallpaper Apps | Wallpaper Engine (Standard) | **ArcPaper** |
-| :--- | :---: | :---: | :---: |
-| **RAM (Playing)** | 300 – 600 MB | 30 – 60 MB | **~10 – 20 MB** |
-| **RAM (Paused)** | 150 – 300 MB | 15 – 30 MB | **< 10 MB** |
-| **Executable Size** | 80 – 150 MB | 10 – 25 MB | **~400 KB** |
-| **Render Engine** | Chromium / WebView2 | Custom Direct3D | **Native libmpv (Direct3D 11)** |
-| **Hardware Decoding** | Inconsistent / Software | Direct3D / DXVA | **Zero-Copy VRAM (`d3d11va`)** |
-| **Runtime Dependencies** | Chromium, Node, .NET | Visual C++ Redist | **Standalone `mpv-2.dll`** |
+| Component | Technology | Description |
+|---|---|---|
+| **Language** | [Rust](https://www.rust-lang.org/) (2024 edition) | High performance, memory-safe native compiled binary |
+| **Video Engine** | [libmpv](https://mpv.io/) (`mpv-2.dll`) | Zero-copy Direct3D 11 hardware decoding & rendering |
+| **Desktop Hook** | Win32 API (`windows` crate) | Direct attachment to Windows `WorkerW` / `Progman` desktop layers |
+| **System Tray** | [tray-icon](https://crates.io/crates/tray-icon) & [muda](https://crates.io/crates/muda) | Native non-blocking Windows notification area menu |
+| **Auto-Start** | [winreg](https://crates.io/crates/winreg) | Clean HKCU registry persistence |
 
 ---
 
-## 🚀 Getting Started
+## 📥 Installation & Usage
+
+### Quick Start (Portable)
+
+1. Download the latest release package: [`ArcPaper-v1.0.0-win64.zip`](https://github.com/ArtixForLiving/ArcPaper/releases/latest).
+2. Extract the archive to any folder (e.g., `C:\Tools\ArcPaper` or `D:\ArcPaper`).
+3. Run `arc_paper.exe`.
+4. Right-click the **ArcPaper** icon in your Windows System Tray to:
+   - Click **"Upload New Wallpaper..."** to import your favorite `.mp4` video.
+   - Check **"Start with Windows"** if you want ArcPaper to launch automatically upon login.
+
+> **Tip:** You can also drop `.mp4` video files directly into the `SavedWallpapers` folder next to `arc_paper.exe`!
+
+---
+
+## 🏗️ Building from Source
 
 ### Prerequisites
+- [Rust toolchain](https://rustup.rs/) (1.80+ or latest stable)
+- Windows 10 / 11 64-bit
+- `mpv-2.dll` / `libmpv-2.dll` placed in the root directory
 
-- **Windows 10 / 11** (64-bit)
-- [Rust toolchain](https://rustup.rs/) (edition 2024 / 1.85+)
-- `mpv-2.dll` placed in the application root directory
+### Compilation
+```powershell
+# Clone the repository
+git clone https://github.com/ArtixForLiving/ArcPaper.git
+cd ArcPaper
 
-### Installation & Build
+# Build optimized release binary
+cargo build --release
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/ArtixForLiving/ArcPaper.git
-   cd ArcPaper
-   ```
-
-2. **Ensure `mpv-2.dll` is present:**
-   Place a compatible 64-bit `mpv-2.dll` build in the root folder `ArcPaper/`.
-
-3. **Build optimized release binary:**
-   ```bash
-   cargo build --release
-   ```
-   The compiled executable will be located at `target/release/arc_paper.exe`.
-
-4. **Run ArcPaper:**
-   ```bash
-   cargo run --release
-   ```
-   Or double-click `arc_paper.exe`. An icon will appear in your Windows System Tray.
-
----
-
-## 📂 Directory Structure
-
-```text
-ArcPaper/
-├── SavedWallpapers/       # Directory where active and uploaded MP4 wallpapers are stored
-├── src/
-│   ├── main.rs            # Application entry, event loop, tray menus & auto-pause watcher
-│   ├── player.rs          # Dynamic libmpv C-API bindings & player controller
-│   └── workerw.rs         # Windows Desktop WorkerW hooking & parent attachment
-├── include/mpv/           # libmpv C headers
-├── config.json            # Persisted user settings (active wallpaper, speed, brightness, fit)
-├── Cargo.toml             # Project manifest & optimization profiles
-└── .gitignore             # Git exclusion rules (ignores heavy DLLs, videos, targets)
+# Run unit tests
+cargo test
 ```
 
----
-
-## ⚙️ Configuration (`config.json`)
-
-ArcPaper saves user preferences automatically into `config.json`:
-
-```json
-{
-  "active_video": "your_wallpaper.mp4",
-  "speed": 1.0,
-  "brightness": 100,
-  "fit_mode": "cover",
-  "is_manually_paused": false
-}
-```
+The resulting standalone executable will be located at `target/release/arc_paper.exe`.
 
 ---
 
-## 🛠️ Built With
+## 📄 License
 
-- [Rust](https://www.rust-lang.org/) - Systems programming language
-- [mpv](https://mpv.io/) - Media player core for zero-copy hardware-accelerated video decoding
-- [tao](https://github.com/tauri-apps/tao) - Cross-platform window creation and event loop
-- [tray-icon](https://github.com/tauri-apps/tray-icon) - Windows system tray integration
-- [windows-rs](https://github.com/microsoft/windows-rs) - Official Microsoft Win32 API bindings for Rust
-
----
-
-## 📜 License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the [MIT License](LICENSE).
