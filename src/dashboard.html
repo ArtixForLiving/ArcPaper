@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ArcPaper - Dashboard</title>
+  <style>
+    :root {
+      --bg-main: #0b111e;
+      --bg-panel: #131c2e;
+      --border-color: #23324d;
+      --cyan-neon: #00f2fe;
+      --emerald-green: #10b981;
+      --text-main: #cdd9f0;
+      --text-muted: #64748b;
+      --danger: #ef4444;
+      --card-bg: #0e1626;
+      --card-border: #1e2c45;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg-main);
+      color: var(--text-main);
+      font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* ─── Top Header Bar ─────────────────────────────────────────── */
+    #header {
+      height: 60px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 20px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-color);
+      cursor: default;
+      flex-shrink: 0;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .neon-logo {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: var(--cyan-neon);
+      border: 1.5px solid var(--cyan-neon);
+      padding: 2px 7px;
+      border-radius: 5px;
+      letter-spacing: 1px;
+      box-shadow: 0 0 10px rgba(0, 242, 254, 0.25);
+    }
+
+    .header-title {
+      font-size: 0.98rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--text-main);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn-upload {
+      background: rgba(0, 242, 254, 0.08);
+      border: 1.5px solid var(--cyan-neon);
+      color: var(--cyan-neon);
+      padding: 7px 18px;
+      border-radius: 6px;
+      font-size: 0.84rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+      box-shadow: 0 0 8px rgba(0, 242, 254, 0.15);
+    }
+
+    .btn-upload:hover {
+      background: var(--cyan-neon);
+      color: #0b111e;
+      box-shadow: 0 0 14px rgba(0, 242, 254, 0.4);
+    }
+
+    .btn-close {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1.5px solid var(--danger);
+      color: var(--danger);
+      width: 34px;
+      height: 34px;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    .btn-close:hover {
+      background: var(--danger);
+      color: #ffffff;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+    }
+
+    /* ─── Main Content Layout ────────────────────────────────────── */
+    #main-content {
+      height: calc(100vh - 60px);
+      display: flex;
+      gap: 16px;
+      padding: 16px;
+      overflow: hidden;
+    }
+
+    /* ─── Left Column: Gallery (flex: 7) ─────────────────────────── */
+    #col-left {
+      flex: 7;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .section-heading {
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 1.8px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .section-heading::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border-color);
+    }
+
+    #wallpaper-grid {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      align-content: start;
+      padding-right: 6px;
+    }
+
+    /* ─── Wallpaper Card ─────────────────────────────────────────── */
+    .wallpaper-card {
+      background: var(--card-bg);
+      border: 1.5px solid var(--card-border);
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+      aspect-ratio: 16 / 9;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .wallpaper-card:hover {
+      border-color: var(--cyan-neon);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0, 242, 254, 0.2);
+    }
+
+    .wallpaper-card.active {
+      border-color: var(--emerald-green);
+      box-shadow: 0 0 14px rgba(16, 185, 129, 0.35);
+    }
+
+    .wallpaper-card.selected {
+      border-color: var(--cyan-neon);
+      box-shadow: 0 0 16px rgba(0, 242, 254, 0.45);
+    }
+
+    .wallpaper-card video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      pointer-events: none;
+      background: #000;
+    }
+
+    .card-footer {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 5px 8px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: rgba(11, 17, 30, 0.88);
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      backdrop-filter: blur(4px);
+    }
+
+    .active-badge {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      background: var(--emerald-green);
+      color: #0b111e;
+      font-size: 0.62rem;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    }
+
+    /* ─── Static Card: Add New ───────────────────────────────────── */
+    .card-add {
+      background: rgba(14, 22, 38, 0.6);
+      border: 1.5px dashed var(--border-color);
+      border-radius: 10px;
+      cursor: pointer;
+      aspect-ratio: 16 / 9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .card-add:hover {
+      border-color: var(--cyan-neon);
+      background: rgba(0, 242, 254, 0.05);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0, 242, 254, 0.15);
+    }
+
+    .card-add .add-icon {
+      font-size: 2rem;
+      line-height: 1;
+      color: var(--cyan-neon);
+      font-weight: 300;
+    }
+
+    .card-add .add-label {
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .card-add:hover .add-label {
+      color: var(--cyan-neon);
+    }
+
+    /* ─── Right Column: Settings (flex: 3) ───────────────────────── */
+    #col-right {
+      flex: 3;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow-y: auto;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .right-top-section {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Preview Box */
+    .preview-container {
+      background: #000;
+      border: 1.5px solid var(--border-color);
+      border-radius: 10px;
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #preview-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+
+    #preview-placeholder {
+      color: var(--text-muted);
+      font-size: 0.76rem;
+      text-align: center;
+      padding: 10px;
+    }
+
+    #selected-name {
+      font-size: 0.72rem;
+      color: var(--cyan-neon);
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 4px;
+      text-align: center;
+    }
+
+    /* Slider Rows */
+    .setting-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .setting-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .setting-val {
+      color: var(--cyan-neon);
+      font-weight: 700;
+      font-size: 0.8rem;
+    }
+
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 5px;
+      border-radius: 3px;
+      background: #1e2c45;
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: var(--cyan-neon);
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(0, 242, 254, 0.6);
+      border: 2px solid var(--bg-main);
+      transition: transform 0.1s ease;
+    }
+
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+    }
+
+    /* Radio Group (Fit) */
+    .radio-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .radio-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.76rem;
+      color: var(--text-main);
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 6px;
+      transition: background 0.15s;
+    }
+
+    .radio-label:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .radio-label input[type=radio] {
+      accent-color: var(--cyan-neon);
+      cursor: pointer;
+    }
+
+    /* Bottom Action Buttons */
+    .action-row {
+      display: flex;
+      gap: 10px;
+      margin-top: auto;
+      padding-top: 6px;
+    }
+
+    #btn-pause-play {
+      flex: 1;
+      height: 44px;
+      border-radius: 8px;
+      background: var(--bg-main);
+      border: 1.5px solid var(--border-color);
+      color: var(--text-main);
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+      gap: 5px;
+    }
+
+    #btn-pause-play:hover {
+      border-color: var(--cyan-neon);
+      color: var(--cyan-neon);
+      box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+    }
+
+    #btn-apply {
+      flex: 1.1;
+      height: 44px;
+      border-radius: 8px;
+      border: none;
+      background: linear-gradient(135deg, var(--cyan-neon), var(--emerald-green));
+      color: #0b111e;
+      font-size: 0.88rem;
+      font-weight: 800;
+      letter-spacing: 1px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.15s, transform 0.1s, box-shadow 0.2s;
+      box-shadow: 0 4px 14px rgba(0, 242, 254, 0.3);
+    }
+
+    #btn-apply:hover {
+      opacity: 0.92;
+      box-shadow: 0 6px 18px rgba(0, 242, 254, 0.45);
+    }
+
+    #btn-apply:active {
+      transform: scale(0.97);
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #374b6e;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── Top Header Bar ─────────────────────────────────────────── -->
+  <div id="header">
+    <div class="header-left">
+      <div class="neon-logo">[::]</div>
+      <div class="header-title">ArcPaper</div>
+    </div>
+    <div class="header-right">
+      <button class="btn-upload" onclick="requestUpload()">+ Upload</button>
+      <button class="btn-close" onclick="closeDashboard()">&#x2715;</button>
+    </div>
+  </div>
+
+  <!-- ─── Main Content Layout ────────────────────────────────────── -->
+  <div id="main-content">
+
+    <!-- Left Column: Local Wallpaper Collection -->
+    <div id="col-left">
+      <div class="section-heading">LOCAL WALLPAPER COLLECTION</div>
+      <div id="wallpaper-grid">
+        <!-- Static Add New card (always visible from the start) -->
+        <div class="card-add" onclick="requestUpload()">
+          <div class="add-icon">+</div>
+          <div class="add-label">+ Add New</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Wallpaper Settings -->
+    <div id="col-right">
+      <div class="right-top-section">
+        <div class="section-heading">WALLPAPER SETTINGS</div>
+
+        <!-- Preview Box -->
+        <div>
+          <div class="preview-container">
+            <video id="preview-video" muted loop autoplay playsinline></video>
+            <div id="preview-placeholder">No wallpaper selected</div>
+          </div>
+          <div id="selected-name">No wallpaper selected</div>
+        </div>
+
+        <!-- Speed Slider -->
+        <div class="setting-group">
+          <div class="setting-header">
+            <span>Playback Speed</span>
+            <span id="speed-label" class="setting-val">1.0x</span>
+          </div>
+          <input type="range" id="speed-slider" min="0.5" max="2.0" step="0.1" value="1.0"
+                 oninput="updateSpeedLabel(this.value)" />
+        </div>
+
+        <!-- Brightness Slider -->
+        <div class="setting-group">
+          <div class="setting-header">
+            <span>Brightness</span>
+            <span id="brightness-label" class="setting-val">100%</span>
+          </div>
+          <input type="range" id="brightness-slider" min="20" max="100" step="5" value="100"
+                 oninput="updateBrightnessLabel(this.value)" />
+        </div>
+
+        <!-- Display Fit Radio -->
+        <div class="setting-group">
+          <div class="setting-header">
+            <span>Screen Fit</span>
+          </div>
+          <div class="radio-list">
+            <label class="radio-label">
+              <input type="radio" name="fit" value="cover" checked onchange="onFitChange(this)" />
+              Cover (Fill &amp; Crop)
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="fit" value="fill" onchange="onFitChange(this)" />
+              Fill (Stretch)
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="fit" value="contain" onchange="onFitChange(this)" />
+              Contain (Original)
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Action Buttons -->
+      <div class="action-row">
+        <button id="btn-pause-play" title="Pause / Resume" onclick="togglePause()">|| Pause / Play</button>
+        <button id="btn-apply" onclick="applyWallpaper()">&#10003; APPLY</button>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // ─── State ──────────────────────────────────────────────────
+    let selectedWallpaper = null;
+    let isPaused = false;
+
+    // ─── IPC Communication ──────────────────────────────────────
+    function sendIpc(data) {
+      if (window.ipc) {
+        window.ipc.postMessage(JSON.stringify(data));
+      }
+    }
+
+    function requestUpload() {
+      sendIpc({ action: "upload" });
+    }
+
+    function closeDashboard() {
+      sendIpc({ action: "close" });
+    }
+
+    function updatePauseButtonUI() {
+      const btn = document.getElementById('btn-pause-play');
+      if (btn) {
+        btn.innerHTML = isPaused ? '&#9654; Resume' : '&#9646;&#9646; Pause';
+      }
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      updatePauseButtonUI();
+      sendIpc({ action: "toggle_pause" });
+    }
+
+    function applyWallpaper() {
+      if (!selectedWallpaper) {
+        alert('Please select a wallpaper first!');
+        return;
+      }
+      const speed = parseFloat(document.getElementById('speed-slider').value);
+      const brightness = parseFloat(document.getElementById('brightness-slider').value);
+      const fit = document.querySelector('input[name="fit"]:checked')?.value || 'cover';
+
+      sendIpc({
+        action: "apply",
+        filename: selectedWallpaper,
+        speed: speed,
+        brightness: brightness,
+        fit: fit
+      });
+    }
+
+    // ─── Slider UI Updates ──────────────────────────────────────
+    function updateSpeedLabel(val) {
+      document.getElementById('speed-label').textContent = parseFloat(val).toFixed(1) + 'x';
+    }
+
+    function updateBrightnessLabel(val) {
+      document.getElementById('brightness-label').textContent = Math.round(val) + '%';
+    }
+
+    function onFitChange(radio) {
+      const pv = document.getElementById('preview-video');
+      if (pv) pv.style.objectFit = radio.value;
+    }
+
+    // ─── Header Drag Support ────────────────────────────────────
+    document.getElementById('header').addEventListener('mousedown', function(e) {
+      if (e.target.closest('button')) return;
+      sendIpc({ action: "drag" });
+    });
+
+    // ─── Wallpaper Selection & Preview ──────────────────────────
+    function selectWallpaper(filename) {
+      selectedWallpaper = filename;
+      const pv = document.getElementById('preview-video');
+      const ph = document.getElementById('preview-placeholder');
+      const sn = document.getElementById('selected-name');
+
+      if (filename) {
+        const streamUrl = 'http://wallpaper.localhost/' + encodeURIComponent(filename);
+        pv.src = streamUrl;
+        pv.style.display = 'block';
+        ph.style.display = 'none';
+        sn.textContent = filename;
+        sn.title = filename;
+        pv.play().catch(() => {});
+      } else {
+        pv.style.display = 'none';
+        ph.style.display = 'block';
+        sn.textContent = 'No wallpaper selected';
+        sn.title = '';
+      }
+
+      // Update card visual selection
+      document.querySelectorAll('.wallpaper-card').forEach(card => {
+        if (card.dataset.filename === filename) {
+          card.classList.add('selected');
+        } else {
+          card.classList.remove('selected');
+        }
+      });
+    }
+
+    // ─── Render Wallpapers from Rust ────────────────────────────
+    function updateGallery(files, activeFile, speed, brightness, fit, manuallyPaused) {
+      // 1. Sync controls
+      if (speed !== undefined && speed !== null) {
+        document.getElementById('speed-slider').value = speed;
+        updateSpeedLabel(speed);
+      }
+      if (brightness !== undefined && brightness !== null) {
+        document.getElementById('brightness-slider').value = brightness;
+        updateBrightnessLabel(brightness);
+      }
+      if (fit) {
+        const r = document.querySelector(`input[name="fit"][value="${fit}"]`);
+        if (r) {
+          r.checked = true;
+          onFitChange(r);
+        }
+      }
+      if (manuallyPaused !== undefined && manuallyPaused !== null) {
+        isPaused = !!manuallyPaused;
+        updatePauseButtonUI();
+      }
+
+      // 2. Populate Grid
+      const grid = document.getElementById('wallpaper-grid');
+      grid.innerHTML = '';
+
+      const list = files || [];
+      list.forEach(name => {
+        const isCurrentActive = name === activeFile;
+        const isSelected = name === selectedWallpaper;
+
+        const card = document.createElement('div');
+        card.className = 'wallpaper-card' + (isCurrentActive ? ' active' : '') + (isSelected ? ' selected' : '');
+        card.dataset.filename = name;
+
+        const videoSrc = 'http://wallpaper.localhost/' + encodeURIComponent(name);
+
+        const video = document.createElement('video');
+        video.src = videoSrc;
+        video.muted = true;
+        video.loop = true;
+        video.preload = 'metadata';
+
+        card.addEventListener('mouseenter', () => video.play().catch(() => {}));
+        card.addEventListener('mouseleave', () => video.pause());
+        card.addEventListener('click', () => selectWallpaper(name));
+
+        const footer = document.createElement('div');
+        footer.className = 'card-footer';
+        footer.textContent = name;
+        footer.title = name;
+
+        card.appendChild(video);
+        card.appendChild(footer);
+
+        if (isCurrentActive) {
+          const badge = document.createElement('div');
+          badge.className = 'active-badge';
+          badge.textContent = 'ACTIVE';
+          card.appendChild(badge);
+        }
+
+        grid.appendChild(card);
+      });
+
+      // Always append "+ Add New" card at the end
+      const addCard = document.createElement('div');
+      addCard.className = 'card-add';
+      addCard.onclick = requestUpload;
+      addCard.innerHTML = `
+        <div class="add-icon">+</div>
+        <div class="add-label">+ Add New</div>
+      `;
+      grid.appendChild(addCard);
+
+      // Auto-select active wallpaper if none currently selected
+      if (!selectedWallpaper && activeFile) {
+        selectWallpaper(activeFile);
+      } else if (selectedWallpaper) {
+        selectWallpaper(selectedWallpaper);
+      }
+    }
+
+    // Alias in case Rust calls renderWallpapers
+    function renderWallpapers(files, activeFile, speed, brightness, fit, manuallyPaused) {
+      updateGallery(files, activeFile, speed, brightness, fit, manuallyPaused);
+    }
+
+    // ─── Initial Handshake when DOM Ready ───────────────────────
+    window.addEventListener('DOMContentLoaded', () => {
+      sendIpc({ action: "request_init_data" });
+    });
+  </script>
+</body>
+</html>

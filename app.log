@@ -1,0 +1,849 @@
+[ArcPaper] Terdeteksi desktop 'exebox-323STDF7ZEV34CLCMQZMILJFOL' (bukan Default). Mengalihkan proses ke WinSta0\Default...
+[ArcPaper] Berhasil meluncurkan Arc Paper di desktop interaktif pengguna (PID: 15624).
+[ArcPaper] Berjalan dengan flag --on-default
+[ArcPaper] Folder SavedWallpapers siap di: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Monitor utama terdeteksi: posisi PhysicalPosition { x: 0, y: 0 }, ukuran PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Terdeteksi desktop 'exebox-MOQCLKUXUIBYBPM6QEDCEMYJUD' (bukan Default). Mengalihkan proses ke WinSta0\Default...
+[ArcPaper] Berhasil meluncurkan Arc Paper di desktop interaktif pengguna (PID: 15152).
+[ArcPaper] Berjalan dengan flag --on-default
+[ArcPaper] Folder SavedWallpapers siap di: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Monitor utama terdeteksi: posisi PhysicalPosition { x: 0, y: 0 }, ukuran PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Terdeteksi desktop 'exebox-ER4DGXHNC3IOBLW5ODNQNDF5YO' (bukan Default). Mengalihkan proses ke WinSta0\Default...
+[ArcPaper] Berhasil meluncurkan Arc Paper di desktop interaktif pengguna (PID: 12624).
+[ArcPaper] Berjalan dengan flag --on-default
+[ArcPaper] Folder SavedWallpapers siap di: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Monitor utama terdeteksi: posisi PhysicalPosition { x: 0, y: 0 }, ukuran PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Memulai WindowBuilder::build...
+[ArcPaper] Folder SavedWallpapers siap di: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Monitor utama terdeteksi: posisi PhysicalPosition { x: 0, y: 0 }, ukuran PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Memulai WindowBuilder::build...
+[ArcPaper] Window tao berhasil dibuat!
+[ArcPaper] Tao Window HWND: HWND(0xd090e)
+[ArcPaper] Memulai WebViewBuilder::build...
+[ArcPaper] Progman window tidak ditemukan di sesi ini.
+[ArcPaper] Aplikasi siap dan event loop dimulai.
+[ArcPaper] Folder SavedWallpapers siap di: "D:\\Arc Paper\\target\\debug\\SavedWallpapers"
+[ArcPaper] Monitor utama terdeteksi: posisi PhysicalPosition { x: 0, y: 0 }, ukuran PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Memulai WindowBuilder::build...
+[ArcPaper] Window tao berhasil dibuat!
+[ArcPaper] Tao Window HWND: HWND(0xc0922)
+[ArcPaper] Memulai WebViewBuilder::build...
+[ArcPaper] Progman HWND ditemukan: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Aplikasi siap dan event loop dimulai.
+[ArcPaper] Folder SavedWallpapers siap di: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Monitor utama terdeteksi: posisi PhysicalPosition { x: 0, y: 0 }, ukuran PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Memulai WindowBuilder::build...
+[ArcPaper] Window tao berhasil dibuat!
+[ArcPaper] Tao Window HWND: HWND(0x9091c)
+[ArcPaper] Memulai WebViewBuilder::build...
+[ArcPaper] Progman HWND ditemukan: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Window berhasil ditempelkan di belakang ikon desktop!
+[ArcPaper] Memutar wallpaper default yang ditemukan: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dipanggil untuk: wallpaper_favorit.mp4
+[ArcPaper] Aplikasi siap dan event loop dimulai.
+[ArcPaper] Menu Exit diklik. Menutup aplikasi secara bersih...
+[ArcPaper] Folder SavedWallpapers siap di: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Monitor utama terdeteksi: posisi PhysicalPosition { x: 0, y: 0 }, ukuran PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Memulai WindowBuilder::build...
+[ArcPaper] Window tao berhasil dibuat!
+[ArcPaper] Tao Window HWND: HWND(0x130914)
+[ArcPaper] Memulai WebViewBuilder::build...
+[ArcPaper] Progman HWND ditemukan: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Window berhasil ditempelkan di belakang ikon desktop!
+[ArcPaper] Memutar wallpaper default yang ditemukan: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dipanggil untuk: wallpaper_favorit.mp4
+[ArcPaper] Aplikasi siap dan event loop dimulai.
+[ArcPaper] Menu Upload Wallpaper diklik. Membuka FileDialog...
+[ArcPaper] Video berhasil disalin ke "D:\\Arc Paper\\SavedWallpapers\\cyanex-in-warframe.1920x1080.mp4"
+[ArcPaper] evaluate_script dipanggil untuk: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Mengganti wallpaper dari sub-menu: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dipanggil untuk: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Mengganti wallpaper dari sub-menu: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dipanggil untuk: wallpaper_favorit.mp4
+[ArcPaper] Mengganti wallpaper dari sub-menu: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dipanggil untuk: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Folder SavedWallpapers siap di: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Monitor utama terdeteksi: posisi PhysicalPosition { x: 0, y: 0 }, ukuran PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Memulai WindowBuilder::build...
+[ArcPaper] Window tao berhasil dibuat!
+[ArcPaper] Tao Window HWND: HWND(0x2069a)
+[ArcPaper] Memulai WebViewBuilder::build...
+[ArcPaper] Progman HWND ditemukan: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Window berhasil ditempelkan di belakang ikon desktop dengan border-bleed!
+[ArcPaper] Memutar wallpaper default yang ditemukan: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dipanggil untuk: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Aplikasi siap dan event loop dimulai.
+[ArcPaper] Menu Upload Wallpaper diklik. Membuka FileDialog...
+[ArcPaper] Video berhasil disalin ke "D:\\Arc Paper\\SavedWallpapers\\formula-1-logo.3840x2160.mp4"
+[ArcPaper] evaluate_script dipanggil untuk: formula-1-logo.3840x2160.mp4
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] Folder SavedWallpapers siap di: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Monitor utama terdeteksi: posisi PhysicalPosition { x: 0, y: 0 }, ukuran PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Memulai WindowBuilder::build...
+[ArcPaper] Window tao berhasil dibuat!
+[ArcPaper] Tao Window HWND: HWND(0x6064a)
+[ArcPaper] Memulai WebViewBuilder::build...
+[ArcPaper] Progman HWND ditemukan: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Target Parent ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }, final_size: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect setelah SetWindowPos: RECT { left: -4, top: -4, right: 1924, bottom: 1084 }
+[ArcPaper] Window berhasil ditempelkan di belakang ikon desktop dengan border-bleed!
+[ArcPaper] Memutar wallpaper default yang ditemukan: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dipanggil untuk: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Aplikasi siap dan event loop dimulai.
+[ArcPaper] Mengganti wallpaper dari sub-menu: formula-1-logo.3840x2160.mp4
+[ArcPaper] evaluate_script dipanggil untuk: formula-1-logo.3840x2160.mp4
+[ArcPaper] Mengganti wallpaper dari sub-menu: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dipanggil untuk: wallpaper_favorit.mp4
+[ArcPaper] Mengganti wallpaper dari sub-menu: formula-1-logo.3840x2160.mp4
+[ArcPaper] evaluate_script dipanggil untuk: formula-1-logo.3840x2160.mp4
+[ArcPaper] Menu Exit diklik. Menutup aplikasi secara bersih...
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] Folder SavedWallpapers siap di: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Monitor utama terdeteksi: posisi PhysicalPosition { x: 0, y: 0 }, ukuran PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Memulai WindowBuilder::build...
+[ArcPaper] Window tao berhasil dibuat!
+[ArcPaper] Tao Window HWND: HWND(0x406da)
+[ArcPaper] Memulai WebViewBuilder::build...
+[ArcPaper] Progman HWND ditemukan: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Target Parent ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }, final_size: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect setelah SetWindowPos: RECT { left: -4, top: -4, right: 1924, bottom: 1084 }
+[ArcPaper] Window berhasil ditempelkan di belakang ikon desktop dengan border-bleed!
+[ArcPaper] Memutar wallpaper default yang ditemukan: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dipanggil untuk: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Aplikasi siap dan event loop dimulai.
+[ArcPaper] Mengganti wallpaper dari sub-menu: formula-1-logo.3840x2160.mp4
+[ArcPaper] evaluate_script dipanggil untuk: formula-1-logo.3840x2160.mp4
+[ArcPaper] Mengatur ukuran layar (fit): contain
+[ArcPaper] Mengatur kecerahan video: 0.75
+[ArcPaper] Mengatur kecerahan video: 0.5
+[ArcPaper] Menu Pause / Resume diklik.
+[ArcPaper] Menu Pause / Resume diklik.
+[ArcPaper] Mengatur kecepatan video: 1x
+[ArcPaper] Mengganti wallpaper dari sub-menu: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dipanggil untuk: wallpaper_favorit.mp4
+[ArcPaper] Mengatur kecerahan video: 1
+[ArcPaper] Mengatur ukuran layar (fit): cover
+[ArcPaper] Menu Pause / Resume diklik.
+[ArcPaper] Menu Pause / Resume diklik.
+[ArcPaper] Menu Exit diklik. Menutup aplikasi secara bersih...
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Building window...
+[ArcPaper] Tao window created successfully!
+[ArcPaper] Tao window HWND: HWND(0x30d06)
+[ArcPaper] Initializing WebView...
+[ArcPaper] Found Progman HWND: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Target Parent ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }, final_size: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect after SetWindowPos: RECT { left: -4, top: -4, right: 1924, bottom: 1084 }
+[ArcPaper] Window successfully attached behind desktop icons with border overscan!
+[ArcPaper] Playing initial default wallpaper: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Switching wallpaper from sub-menu: formula-1-logo.3840x2160.mp4
+[ArcPaper] evaluate_script dispatched for: formula-1-logo.3840x2160.mp4
+[ArcPaper] Switching wallpaper from sub-menu: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x20ce0)
+[ArcPaper] Found Progman HWND: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Target Parent ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }, final_size: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect after SetWindowPos: RECT { left: -4, top: -4, right: 1924, bottom: 1084 }
+[ArcPaper] Window successfully attached behind desktop icons with border overscan!
+[ArcPaper] Playing initial default wallpaper: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] 'Open Dashboard' tray item clicked.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Exit clicked. Closing application gracefully...
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x30d58)
+[ArcPaper] Found Progman HWND: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Target Parent ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }, final_size: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect after SetWindowPos: RECT { left: -4, top: -4, right: 1924, bottom: 1084 }
+[ArcPaper] Window successfully attached behind desktop icons with border overscan!
+[ArcPaper] Playing initial default wallpaper: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] 'Open Dashboard' tray item clicked.
+[ArcPaper] Exit clicked. Closing application gracefully...
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x70cd2)
+[ArcPaper] Progman window not found in current session.
+[ArcPaper] Playing initial default wallpaper: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x70d2c)
+[ArcPaper] Progman window not found in current session.
+[ArcPaper] Playing initial default wallpaper: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x70ce0)
+[ArcPaper] Found Progman HWND: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Target Parent ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }, final_size: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect after SetWindowPos: RECT { left: -4, top: -4, right: 1924, bottom: 1084 }
+[ArcPaper] Window successfully attached behind desktop icons with border overscan!
+[ArcPaper] Playing initial default wallpaper: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"request_init_data"}
+[ArcPaper] IPC: Handling request_init_data / ready
+[ArcPaper] IPC message received: {"action":"apply","filename":"cyanex-in-warframe.1920x1080.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='cyanex-in-warframe.1920x1080.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"upload"}
+[ArcPaper] IPC: Upload requested from Dashboard.
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":2,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=2 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":2,"brightness":80,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=2 brightness=80 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":2,"brightness":25,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=2 brightness=25 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":2,"brightness":20,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=2 brightness=20 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"upload"}
+[ArcPaper] IPC: Upload requested from Dashboard.
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":2,"brightness":20,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=2 brightness=20 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":2,"brightness":20,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=2 brightness=20 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1.2,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1.2 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"formula-1-logo.3840x2160.mp4","speed":1.2,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='formula-1-logo.3840x2160.mp4' speed=1.2 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: formula-1-logo.3840x2160.mp4
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1.2,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1.2 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Setting playback rate: 0.5x
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Setting playback rate: 0.5x
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Setting playback rate: 0.5x
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"fill"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='fill'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"fill"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='fill'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"contain"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='contain'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Exit clicked. Closing application gracefully...
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x80d82)
+[ArcPaper] Found Progman HWND: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Target Parent ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }, final_size: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect after SetWindowPos: RECT { left: -4, top: -4, right: 1924, bottom: 1084 }
+[ArcPaper] Window successfully attached behind desktop icons with border overscan!
+[ArcPaper] Playing initial default wallpaper: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"request_init_data"}
+[ArcPaper] IPC: Handling request_init_data / ready
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Exit clicked. Closing application gracefully...
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0xc0d70)
+[ArcPaper] Found Progman HWND: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Target Parent ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }, final_size: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect after SetWindowPos: RECT { left: -4, top: -4, right: 1924, bottom: 1084 }
+[ArcPaper] Window successfully attached behind desktop icons with border overscan!
+[ArcPaper] Playing initial default wallpaper: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"request_init_data"}
+[ArcPaper] IPC: Handling request_init_data / ready
+[ArcPaper] IPC message received: {"action":"upload"}
+[ArcPaper] IPC: Upload requested from Dashboard.
+[ArcPaper] Video copied (IPC): "D:\\Arc Paper\\SavedWallpapers\\uncle-panda-remnant-tale.1920x1080.mp4"
+[ArcPaper] evaluate_script dispatched for: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"apply","filename":"uncle-panda-remnant-tale.1920x1080.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='uncle-panda-remnant-tale.1920x1080.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Exit clicked. Closing application gracefully...
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0xc0c68)
+[ArcPaper] Found Progman HWND: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Target Parent ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }, final_size: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect after SetWindowPos: RECT { left: -4, top: -4, right: 1924, bottom: 1084 }
+[ArcPaper] Window successfully attached behind desktop icons with border overscan!
+[ArcPaper] Playing wallpaper on startup: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"request_init_data"}
+[ArcPaper] IPC: Handling request_init_data / ready
+[ArcPaper] IPC message received: {"action":"apply","filename":"formula-1-logo.3840x2160.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='formula-1-logo.3840x2160.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: formula-1-logo.3840x2160.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x450918)
+[ArcPaper] Found Progman HWND: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Target Parent ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }, final_size: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect after SetWindowPos: RECT { left: -4, top: -4, right: 1924, bottom: 1084 }
+[ArcPaper] Window successfully attached behind desktop icons with border overscan!
+[ArcPaper] Playing wallpaper on startup: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"request_init_data"}
+[ArcPaper] IPC: Handling request_init_data / ready
+[ArcPaper] IPC message received: {"action":"apply","filename":"cyanex-in-warframe.1920x1080.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='cyanex-in-warframe.1920x1080.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: cyanex-in-warframe.1920x1080.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"request_init_data"}
+[ArcPaper] IPC: Handling request_init_data / ready
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Exit clicked. Closing application gracefully...
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x1b052e)
+[ArcPaper] Progman window not found in current session.
+[ArcPaper] Playing wallpaper on startup: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Attached to WinSta0\Default desktop: BOOL(1)
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x100d42)
+[PANIC] PanicHookInfo { payload: Any { .. }, location: Location { file: "src\\main.rs", line: 980, column: 10 }, can_unwind: true, force_no_backtrace: false }
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x190c74)
+[ArcPaper] Found Progman HWND: HWND(0x1016a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1016e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x5e033a)
+[ArcPaper] Target Parent HWND: HWND(0x5e033a)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Desktop dimensions - Progman ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 } (1920x1080), ScreenMetrics: 1920x1080, Final: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect after SetWindowPos: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }
+[ArcPaper] Window successfully attached behind desktop icons with 100% full-screen physical coverage!
+[ArcPaper] Playing wallpaper on startup: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"request_init_data"}
+[ArcPaper] IPC: Handling request_init_data / ready
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":100,"fit":"fill"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=100 fit='fill'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Exit clicked. Closing application gracefully...
+[ArcPaper] SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) result: Ok(())
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x20208)
+[ArcPaper] Found Progman HWND: HWND(0x1015a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1015e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x104cc)
+[ArcPaper] Target Parent HWND: HWND(0x104cc)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Desktop dimensions - Progman ClientRect: RECT { left: 0, top: 0, right: 1920, bottom: 1080 } (1920x1080), ScreenMetrics: 1920x1080, Final: 1920x1080
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] my_hwnd WindowRect after SetWindowPos: RECT { left: 0, top: 0, right: 1920, bottom: 1080 }
+[ArcPaper] Window successfully attached behind desktop icons with 100% full-screen physical coverage!
+[ArcPaper] Playing wallpaper on startup: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"request_init_data"}
+[ArcPaper] IPC: Handling request_init_data / ready
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1.5,"brightness":100,"fit":"fill"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1.5 brightness=100 fit='fill'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1.5,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1.5 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"apply","filename":"uncle-panda-remnant-tale.1920x1080.mp4","speed":1.5,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='uncle-panda-remnant-tale.1920x1080.mp4' speed=1.5 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] Exit clicked. Closing application gracefully...
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x604ce)
+[ArcPaper] Progman window not found in current session.
+[ArcPaper] Playing wallpaper on startup: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x304d4)
+[ArcPaper] Found Progman HWND: HWND(0x1015a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1015e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x104cc)
+[ArcPaper] Target Parent HWND: HWND(0x104cc)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] SetWindowPos(workerw behind shelldll): Ok(())
+[ArcPaper] SetWindowPos(my_hwnd in workerw): Ok(())
+[ArcPaper] Window successfully attached behind desktop icons.
+[ArcPaper] Playing wallpaper on startup: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] evaluate_script dispatched for: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"request_init_data"}
+[ArcPaper] IPC: Handling request_init_data / ready
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1.5,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1.5 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Exit clicked. Closing application gracefully...
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x18061c)
+[ArcPaper DIAG] Initial wallpaper_window: style=0x14CB0000, exstyle=0x00040110, WindowRect=RECT { left: 0, top: 0, right: 1920, bottom: 1080 } (1920x1080), ClientRect=RECT { left: 0, top: 0, right: 1920, bottom: 1080 } (1920x1080)
+[ArcPaper] Progman window not found in current session.
+[ArcPaper] Playing wallpaper on startup: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x16029c)
+[ArcPaper DIAG] Initial wallpaper_window: style=0x14CB0000, exstyle=0x00040110, WindowRect=RECT { left: 0, top: 0, right: 1920, bottom: 1080 } (1920x1080), ClientRect=RECT { left: 0, top: 0, right: 1920, bottom: 1080 } (1920x1080)
+[ArcPaper] Progman window not found in current session.
+[ArcPaper] Playing wallpaper on startup: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] SavedWallpapers folder ready at: "D:\\Arc Paper\\SavedWallpapers"
+[ArcPaper] Loaded configuration from "D:\\Arc Paper\\config.json"
+[ArcPaper] Primary monitor detected: position PhysicalPosition { x: 0, y: 0 }, size PhysicalSize { width: 1920, height: 1080 }, scale 1.5
+[ArcPaper] Building wallpaper window...
+[ArcPaper] Wallpaper window HWND: HWND(0x17029c)
+[ArcPaper DIAG] Initial wallpaper_window: style=0x14CB0000, exstyle=0x00040110, WindowRect=RECT { left: 0, top: 0, right: 1920, bottom: 1080 } (1920x1080), ClientRect=RECT { left: 0, top: 0, right: 1920, bottom: 1080 } (1920x1080)
+[ArcPaper] Found Progman HWND: HWND(0x1015a)
+[ArcPaper] SendMessageTimeoutW 0x052C result: LRESULT(1), result_val: 0
+[ArcPaper] SHELLDLL_DefView HWND: HWND(0x1015e)
+[ArcPaper] WorkerW in Progman HWND: HWND(0x104cc)
+[ArcPaper] Target Parent HWND: HWND(0x104cc)
+[ArcPaper] SetParent result (prev parent): Ok(HWND(0x1000c))
+[ArcPaper] Client area after initial SetWindowPos: 1920x1080 (target: 1920x1080)
+[ArcPaper] Window successfully attached behind desktop icons with 100% gapless coverage.
+[ArcPaper] Playing wallpaper on startup: wallpaper_favorit.mp4
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Application initialized. Event loop started.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"request_init_data"}
+[ArcPaper] IPC: Handling request_init_data / ready
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"uncle-panda-remnant-tale.1920x1080.mp4","speed":1.5,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='uncle-panda-remnant-tale.1920x1080.mp4' speed=1.5 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"formula-1-logo.3840x2160.mp4","speed":1.5,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='formula-1-logo.3840x2160.mp4' speed=1.5 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: formula-1-logo.3840x2160.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"formula-1-logo.3840x2160.mp4","speed":0.9,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='formula-1-logo.3840x2160.mp4' speed=0.9 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: formula-1-logo.3840x2160.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":0.9,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=0.9 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"toggle_pause"}
+[ArcPaper] IPC: Toggle pause/play on wallpaper.
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"apply","filename":"uncle-panda-remnant-tale.1920x1080.mp4","speed":0.9,"brightness":100,"fit":"cover"}
+[ArcPaper] IPC Apply: file='uncle-panda-remnant-tale.1920x1080.mp4' speed=0.9 brightness=100 fit='cover'
+[ArcPaper] evaluate_script dispatched for: uncle-panda-remnant-tale.1920x1080.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Setting playback rate: 1x
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] Setting brightness: 50
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"apply","filename":"wallpaper_favorit.mp4","speed":1,"brightness":50,"fit":"cover"}
+[ArcPaper] IPC Apply: file='wallpaper_favorit.mp4' speed=1 brightness=50 fit='cover'
+[ArcPaper] evaluate_script dispatched for: wallpaper_favorit.mp4
+[ArcPaper] Successfully saved config to "D:\\Arc Paper\\config.json"
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Tray left-click: opening Dashboard.
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"upload"}
+[ArcPaper] IPC: Upload requested from Dashboard.
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"drag"}
+[ArcPaper] IPC message received: {"action":"close"}
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
+[ArcPaper] Smart Auto-Pause: Fullscreen / maximized app detected. Pausing wallpaper.
+[ArcPaper] Smart Auto-Resume: Desktop is visible. Resuming wallpaper.
