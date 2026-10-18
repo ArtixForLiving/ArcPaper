@@ -1,1 +1,8 @@
 /target
+*.dll
+*.dll.a
+*.pdb
+*.exe
+SavedWallpapers/
+*.mp4
+*.log

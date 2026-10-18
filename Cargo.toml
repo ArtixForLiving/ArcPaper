@@ -10,5 +10,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tao = "0.37.1"
 tray-icon = "0.26.1"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_System_LibraryLoader"] }
-wry = "0.57.0"
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_Security", "Win32_System_ProcessStatus"] }
+
+[profile.release]
+opt-level = "z"     # Optimalkan ukuran biner sekecil mungkin
+lto = true          # Aktifkan Link-Time Optimization untuk memangkas unused code
+codegen-units = 1   # Maksimalkan optimasi ukuran lintas crate
+panic = "abort"     # Hapus overhead stack unwinding
+strip = true        # Buang seluruh debug symbols dari file .exe
+
+[profile.dev]
+debug = 0           # Matikan pembuatan debug symbol berukuran giga-byte di folder debug
+incremental = false # Kurangi file cache inkremental sementara

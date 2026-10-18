@@ -165,7 +165,14 @@
       background: var(--border-color);
     }
 
-    #wallpaper-grid {
+    .wallpaper-grid {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      align-content: start;
+    }
+
+    #local-grid {
       flex: 1;
       overflow-y: auto;
       overflow-x: hidden;
@@ -516,8 +523,8 @@
     <!-- Left Column: Local Wallpaper Collection -->
     <div id="col-left">
       <div class="section-heading">LOCAL WALLPAPER COLLECTION</div>
-      <div id="wallpaper-grid">
-        <!-- Static Add New card (always visible from the start) -->
+      <div id="local-grid" class="wallpaper-grid">
+        <!-- Static Add New card -->
         <div class="card-add" onclick="requestUpload()">
           <div class="add-icon">+</div>
           <div class="add-label">+ Add New</div>
@@ -594,6 +601,7 @@
     // ─── State ──────────────────────────────────────────────────
     let selectedWallpaper = null;
     let isPaused = false;
+    let baseFolderUrl = 'http://arcpaper.local/';
 
     // ─── IPC Communication ──────────────────────────────────────
     function sendIpc(data) {
@@ -661,26 +669,77 @@
       sendIpc({ action: "drag" });
     });
 
+    // ─── Helper: Get File URL ───────────────────────────────────
+    function getFileUrl(filename) {
+      if (filename.startsWith('file:///') || filename.startsWith('http://') || filename.startsWith('https://')) {
+        return filename;
+      }
+      const cleanBase = baseFolderUrl.endsWith('/') ? baseFolderUrl : (baseFolderUrl + '/');
+      return cleanBase + encodeURIComponent(filename);
+    }
+
     // ─── Wallpaper Selection & Preview ──────────────────────────
     function selectWallpaper(filename) {
       selectedWallpaper = filename;
-      const pv = document.getElementById('preview-video');
       const ph = document.getElementById('preview-placeholder');
       const sn = document.getElementById('selected-name');
+      const container = document.querySelector('.preview-container');
+
+      // 1. Purge old video element to release media decoders & RAM
+      const oldVideo = document.getElementById('preview-video');
+      if (oldVideo) {
+        oldVideo.pause();
+        oldVideo.removeAttribute('src');
+        oldVideo.load();
+        oldVideo.remove();
+      }
 
       if (filename) {
-        const streamUrl = 'http://wallpaper.localhost/' + encodeURIComponent(filename);
-        pv.src = streamUrl;
-        pv.style.display = 'block';
-        ph.style.display = 'none';
-        sn.textContent = filename;
-        sn.title = filename;
-        pv.play().catch(() => {});
+        // 2. Create new preview video element from scratch
+        const newVideo = document.createElement('video');
+        newVideo.id = 'preview-video';
+        newVideo.muted = true;
+        newVideo.volume = 0;
+        newVideo.loop = true;
+        newVideo.autoplay = true;
+        newVideo.playsInline = true;
+
+        const currentFit = document.querySelector('input[name="fit"]:checked')?.value || 'cover';
+        newVideo.style.objectFit = currentFit;
+        newVideo.style.display = 'block';
+
+        const videoSrc = getFileUrl(filename);
+        newVideo.src = videoSrc;
+
+        newVideo.addEventListener('error', () => {
+          const err = newVideo.error ? ('code=' + newVideo.error.code + ' msg=' + newVideo.error.message) : 'unknown error';
+          sendIpc({ action: "log", msg: "Preview video error: " + err + " for " + newVideo.src });
+        });
+        newVideo.addEventListener('loadedmetadata', () => {
+          sendIpc({ action: "log", msg: "Preview video loadedmetadata: duration=" + newVideo.duration + " for " + newVideo.src });
+        });
+
+        if (container) {
+          if (ph) {
+            container.insertBefore(newVideo, ph);
+          } else {
+            container.appendChild(newVideo);
+          }
+        }
+        if (ph) ph.style.display = 'none';
+        if (sn) {
+          sn.textContent = filename;
+          sn.title = filename;
+        }
+        newVideo.play().catch((err) => {
+          sendIpc({ action: "log", msg: "Preview video play() rejected: " + err });
+        });
       } else {
-        pv.style.display = 'none';
-        ph.style.display = 'block';
-        sn.textContent = 'No wallpaper selected';
-        sn.title = '';
+        if (ph) ph.style.display = 'block';
+        if (sn) {
+          sn.textContent = 'No wallpaper selected';
+          sn.title = '';
+        }
       }
 
       // Update card visual selection
@@ -694,7 +753,11 @@
     }
 
     // ─── Render Wallpapers from Rust ────────────────────────────
-    function updateGallery(files, activeFile, speed, brightness, fit, manuallyPaused) {
+    function updateGallery(files, activeFile, speed, brightness, fit, manuallyPaused, baseFolder) {
+      if (baseFolder) {
+        baseFolderUrl = baseFolder;
+      }
+
       // 1. Sync controls
       if (speed !== undefined && speed !== null) {
         document.getElementById('speed-slider').value = speed;
@@ -716,8 +779,15 @@
         updatePauseButtonUI();
       }
 
-      // 2. Populate Grid
-      const grid = document.getElementById('wallpaper-grid');
+      // 2. Clean up existing card videos in grid to free memory
+      const grid = document.getElementById('local-grid');
+      if (!grid) return;
+      grid.querySelectorAll('video').forEach(v => {
+        v.pause();
+        v.removeAttribute('src');
+        v.load();
+        v.remove();
+      });
       grid.innerHTML = '';
 
       const list = files || [];
@@ -729,16 +799,23 @@
         card.className = 'wallpaper-card' + (isCurrentActive ? ' active' : '') + (isSelected ? ' selected' : '');
         card.dataset.filename = name;
 
-        const videoSrc = 'http://wallpaper.localhost/' + encodeURIComponent(name);
+        // Direct file:/// URL for thumbnail (NO autoplay, NO loop, metadata preload only)
+        const videoSrc = getFileUrl(name);
 
         const video = document.createElement('video');
         video.src = videoSrc;
         video.muted = true;
-        video.loop = true;
         video.preload = 'metadata';
+        video.style.pointerEvents = 'none';
 
-        card.addEventListener('mouseenter', () => video.play().catch(() => {}));
-        card.addEventListener('mouseleave', () => video.pause());
+        video.addEventListener('error', () => {
+          const err = video.error ? ('code=' + video.error.code + ' msg=' + video.error.message) : 'unknown error';
+          sendIpc({ action: "log", msg: "Card video error: " + err + " for " + video.src });
+        });
+        video.addEventListener('loadedmetadata', () => {
+          sendIpc({ action: "log", msg: "Card video loadedmetadata for " + name });
+        });
+
         card.addEventListener('click', () => selectWallpaper(name));
 
         const footer = document.createElement('div');
@@ -778,8 +855,8 @@
     }
 
     // Alias in case Rust calls renderWallpapers
-    function renderWallpapers(files, activeFile, speed, brightness, fit, manuallyPaused) {
-      updateGallery(files, activeFile, speed, brightness, fit, manuallyPaused);
+    function renderWallpapers(files, activeFile, speed, brightness, fit, manuallyPaused, baseFolder) {
+      updateGallery(files, activeFile, speed, brightness, fit, manuallyPaused, baseFolder);
     }
 
     // ─── Initial Handshake when DOM Ready ───────────────────────
