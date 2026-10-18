@@ -34,14 +34,26 @@ impl MpvApi {
     /// Attempts to dynamically load `mpv-2.dll` or `mpv.dll` from the application directory,
     /// target build directories, or system search path.
     pub fn load() -> Result<Self, String> {
-        let candidate_paths = [
+        let mut candidate_paths = vec![
+            PathBuf::from("D:\\Arc Paper\\dist\\ArcPaper\\libmpv-2.dll"),
+            PathBuf::from("D:\\Arc Paper\\dist\\ArcPaper\\mpv-2.dll"),
+            PathBuf::from("D:\\Arc Paper\\libmpv-2.dll"),
             PathBuf::from("D:\\Arc Paper\\mpv-2.dll"),
-            PathBuf::from("D:\\Arc Paper\\target\\debug\\mpv-2.dll"),
+            PathBuf::from("D:\\Arc Paper\\target\\release\\libmpv-2.dll"),
             PathBuf::from("D:\\Arc Paper\\target\\release\\mpv-2.dll"),
-            PathBuf::from("mpv-2.dll"),
+            PathBuf::from("D:\\Arc Paper\\target\\debug\\libmpv-2.dll"),
+            PathBuf::from("D:\\Arc Paper\\target\\debug\\mpv-2.dll"),
             PathBuf::from("libmpv-2.dll"),
+            PathBuf::from("mpv-2.dll"),
             PathBuf::from("mpv.dll"),
         ];
+
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                candidate_paths.insert(0, parent.join("libmpv-2.dll"));
+                candidate_paths.insert(1, parent.join("mpv-2.dll"));
+            }
+        }
 
         let mut hmodule = None;
         for path in &candidate_paths {
@@ -59,7 +71,9 @@ impl MpvApi {
         }
 
         if hmodule.is_none() {
-            if let Ok(handle) = unsafe { LoadLibraryW(w!("mpv-2.dll")) } {
+            if let Ok(handle) = unsafe { LoadLibraryW(w!("libmpv-2.dll")) } {
+                hmodule = Some(handle);
+            } else if let Ok(handle) = unsafe { LoadLibraryW(w!("mpv-2.dll")) } {
                 hmodule = Some(handle);
             } else if let Ok(handle) = unsafe { LoadLibraryW(w!("mpv.dll")) } {
                 hmodule = Some(handle);
@@ -70,7 +84,7 @@ impl MpvApi {
             Some(m) => m,
             None => {
                 return Err(
-                    "mpv-2.dll not found. Please place mpv-2.dll in the Arc Paper directory."
+                    "libmpv-2.dll or mpv-2.dll not found. Please place libmpv-2.dll in the application directory."
                         .to_string(),
                 );
             }

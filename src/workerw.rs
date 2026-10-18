@@ -152,9 +152,7 @@ fn get_workerw_from_progman(progman: HWND) -> HWND {
     }
 }
 
-/// Safely retrieves or triggers the desktop WorkerW (or Progman fallback) window handle.
-/// Sends Win32 message 0x052C to Progman to spawn the WorkerW layer behind desktop icons.
-pub fn get_desktop_workerw_hwnd() -> HWND {
+fn get_desktop_workerw_hwnd_internal() -> HWND {
     let progman = get_progman_hwnd();
     if !progman.0.is_null() {
         return get_workerw_from_progman(progman);
@@ -175,6 +173,59 @@ pub fn get_desktop_workerw_hwnd() -> HWND {
     .unwrap_or(0usize);
 
     HWND(raw as *mut _)
+}
+
+/// Safely attaches to the desktop WorkerW window handle.
+/// Retries up to 10 times with a 500ms delay if Progman or WorkerW is not yet ready during system startup.
+pub fn attach_to_desktop() -> HWND {
+    for attempt in 1..=10 {
+        let progman = get_progman_hwnd();
+        if !progman.0.is_null() {
+            let workerw = get_workerw_from_progman(progman);
+            if !workerw.0.is_null() {
+                if attempt > 1 {
+                    println!(
+                        "[ArcPaper] Desktop WorkerW successfully attached on attempt {}",
+                        attempt
+                    );
+                }
+                return workerw;
+            }
+        }
+
+        let fallback_workerw = get_desktop_workerw_hwnd_internal();
+        if !fallback_workerw.0.is_null() {
+            if attempt > 1 {
+                println!(
+                    "[ArcPaper] Desktop WorkerW successfully attached on attempt {}",
+                    attempt
+                );
+            }
+            return fallback_workerw;
+        }
+
+        if attempt < 10 {
+            println!(
+                "[ArcPaper] Desktop shell (Progman/WorkerW) not ready (attempt {}/10). Retrying in 500ms...",
+                attempt
+            );
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+
+    HWND::default()
+}
+
+/// PascalCase alias for attach_to_desktop matching Windows desktop integration conventions.
+#[allow(non_snake_case)]
+pub fn AttachToDesktop() -> HWND {
+    attach_to_desktop()
+}
+
+/// Retrieves the desktop WorkerW window handle using retry logic.
+#[allow(dead_code)]
+pub fn get_desktop_workerw_hwnd() -> HWND {
+    attach_to_desktop()
 }
 
 #[cfg(test)]

@@ -25,13 +25,18 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
 
+fn get_app_log_path() -> PathBuf {
+    get_app_dir().join("app.log")
+}
+
 fn log_msg(msg: &str) {
     println!("{}", msg);
     use std::io::Write;
+    let log_path = get_app_log_path();
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("D:\\Arc Paper\\app.log")
+        .open(&log_path)
     {
         let _ = writeln!(file, "{}", msg);
     }
@@ -62,6 +67,36 @@ fn delayed_trim(delay_ms: u64) {
 const RUN_KEY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const APP_REG_NAME: &str = "ArcPaper";
 
+/// Returns the primary executable path, avoiding any temporary test runner binaries in `deps/`.
+fn get_main_exe_path() -> PathBuf {
+    if let Ok(current_exe) = std::env::current_exe() {
+        let is_deps = current_exe.components().any(|c| c.as_os_str() == "deps");
+        if is_deps {
+            let dist_exe = PathBuf::from("D:\\Arc Paper\\dist\\ArcPaper\\arc_paper.exe");
+            if dist_exe.exists() {
+                return dist_exe;
+            }
+            if let Some(deps_parent) = current_exe.parent().and_then(|p| p.parent()) {
+                let sibling_exe = deps_parent.join("arc_paper.exe");
+                if sibling_exe.exists() {
+                    return sibling_exe;
+                }
+            }
+            let root_exe = PathBuf::from("D:\\Arc Paper\\arc_paper.exe");
+            if root_exe.exists() {
+                return root_exe;
+            }
+        } else {
+            return current_exe;
+        }
+    }
+    let dist_exe = PathBuf::from("D:\\Arc Paper\\dist\\ArcPaper\\arc_paper.exe");
+    if dist_exe.exists() {
+        return dist_exe;
+    }
+    PathBuf::from("D:\\Arc Paper\\arc_paper.exe")
+}
+
 /// Checks if ArcPaper is registered in HKCU Run key
 fn is_autostart_enabled() -> bool {
     let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
@@ -73,10 +108,10 @@ fn is_autostart_enabled() -> bool {
     }
 }
 
-/// Registers the current executable path into HKCU Run key
+/// Registers the current executable path into HKCU Run key wrapped in double quotes
 fn enable_autostart() -> Result<(), Box<dyn std::error::Error>> {
-    let current_exe = std::env::current_exe()?;
-    let exe_path_str = current_exe.to_string_lossy().to_string();
+    let main_exe = get_main_exe_path();
+    let exe_path_str = main_exe.to_string_lossy().to_string();
     let quoted_path = format!("\"{}\"", exe_path_str);
 
     let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
@@ -129,36 +164,39 @@ fn create_default_tray_icon() -> Icon {
 // ─── Path Helpers ─────────────────────────────────────────────────────────────
 
 fn get_app_dir() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        let is_deps = exe.components().any(|c| c.as_os_str() == "deps");
+        if !is_deps {
+            if let Some(parent) = exe.parent() {
+                if parent.join("SavedWallpapers").exists() || parent.join("libmpv-2.dll").exists() {
+                    return parent.to_path_buf();
+                }
+            }
+        }
+    }
+    let dist_dir = PathBuf::from("D:\\Arc Paper\\dist\\ArcPaper");
+    if dist_dir.exists() {
+        return dist_dir;
+    }
     let fixed_dir = PathBuf::from("D:\\Arc Paper");
     if fixed_dir.exists() {
         return fixed_dir;
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            return parent.to_path_buf();
-        }
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
 fn get_saved_wallpapers_dir() -> PathBuf {
+    let app_dir = get_app_dir();
+    let wp_dir = app_dir.join("SavedWallpapers");
+    if wp_dir.exists() {
+        return wp_dir;
+    }
     let fixed_dir = PathBuf::from("D:\\Arc Paper\\SavedWallpapers");
     if fixed_dir.exists() {
         return fixed_dir;
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let p_exe = parent.join("SavedWallpapers");
-            if p_exe.exists() {
-                return p_exe;
-            }
-        }
-    }
-    let p_cur = std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("SavedWallpapers");
-    let _ = std::fs::create_dir_all(&p_cur);
-    p_cur
+    let _ = std::fs::create_dir_all(&wp_dir);
+    wp_dir
 }
 
 fn get_config_path() -> PathBuf {
@@ -442,10 +480,21 @@ unsafe fn is_foreground_covering_screen(
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 fn main() {
-    // Set working directory to the directory where this executable resides
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let _ = std::env::set_current_dir(exe_dir);
+    // Set working directory to the directory where this executable resides and configure DLL search path
+    let main_exe = get_main_exe_path();
+    if let Some(exe_dir) = main_exe.parent() {
+        let _ = std::env::set_current_dir(exe_dir);
+        unsafe {
+            use std::os::windows::ffi::OsStrExt;
+            use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
+            use windows::core::PCWSTR;
+
+            let wide_exe_dir: Vec<u16> = exe_dir
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let _ = SetDllDirectoryW(PCWSTR(wide_exe_dir.as_ptr()));
         }
     }
 
@@ -477,10 +526,11 @@ fn main() {
 
     std::panic::set_hook(Box::new(|info| {
         use std::io::Write;
+        let log_path = get_app_log_path();
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open("D:\\Arc Paper\\app.log")
+            .open(&log_path)
         {
             let _ = writeln!(f, "[PANIC] {:?}", info);
         }
@@ -518,8 +568,8 @@ fn main() {
         saved_wallpapers_dir
     ));
 
-    // 2. Hook desktop WorkerW layer and size directly to physical screen resolution
-    let workerw_hwnd = workerw::get_desktop_workerw_hwnd();
+    // 2. Hook desktop WorkerW layer with retry loop and size directly to physical screen resolution
+    let workerw_hwnd = workerw::AttachToDesktop();
     log_msg(&format!(
         "[ArcPaper] Desktop WorkerW HWND: {:?}",
         workerw_hwnd
@@ -551,8 +601,10 @@ fn main() {
 
     // 3. Initialize MPV core engine attached directly to WorkerW HWND
     let progman_current = workerw::get_progman_hwnd();
-    let mpv_target_wid = if !progman_current.0.is_null() {
+    let mpv_target_wid = if !workerw_hwnd.0.is_null() {
         workerw_hwnd
+    } else if !progman_current.0.is_null() {
+        progman_current
     } else {
         log_msg(
             "[ArcPaper] Secondary/sandbox session: skipping cross-desktop WID attachment for MPV safety.",
@@ -592,19 +644,44 @@ fn main() {
     // 5. Initialize Tao EventLoop for System Tray and Auto-Pause
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
-    // 6. Build System Tray Menu
-    let (initial_menu, mut controls) = build_tray_menu(
-        &saved_wallpapers_dir,
-        wp_state.borrow().is_manually_paused,
-        wp_state.borrow().active_video.as_deref(),
-    );
-
-    let tray_icon = TrayIconBuilder::new()
-        .with_menu(Box::new(initial_menu))
-        .with_tooltip("ArcPaper")
-        .with_icon(create_default_tray_icon())
-        .build()
-        .expect("Failed to create system tray icon");
+    // 6. Build System Tray Menu with retry loop if shell tray is not ready yet during boot
+    let (tray_icon, mut controls) = {
+        let mut built = None;
+        for attempt in 1..=10 {
+            let (menu, new_ctrl) = build_tray_menu(
+                &saved_wallpapers_dir,
+                wp_state.borrow().is_manually_paused,
+                wp_state.borrow().active_video.as_deref(),
+            );
+            match TrayIconBuilder::new()
+                .with_menu(Box::new(menu))
+                .with_tooltip("ArcPaper")
+                .with_icon(create_default_tray_icon())
+                .build()
+            {
+                Ok(icon) => {
+                    if attempt > 1 {
+                        log_msg(&format!(
+                            "[ArcPaper] System tray icon created successfully on attempt {}",
+                            attempt
+                        ));
+                    }
+                    built = Some((icon, new_ctrl));
+                    break;
+                }
+                Err(e) => {
+                    log_msg(&format!(
+                        "[ArcPaper] System tray not ready (attempt {}/10): {:?}. Retrying in 500ms...",
+                        attempt, e
+                    ));
+                    if attempt < 10 {
+                        std::thread::sleep(Duration::from_millis(500));
+                    }
+                }
+            }
+        }
+        built.expect("Failed to create system tray icon after 10 attempts")
+    };
 
     let proxy_tray = event_loop.create_proxy();
     let proxy_tray_cb = proxy_tray.clone();
@@ -942,6 +1019,14 @@ mod tests {
         // Test enable
         assert!(enable_autostart().is_ok());
         assert!(is_autostart_enabled());
+
+        // Verify registry value format has double quotes and does not contain deps/
+        let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+        if let Ok(run_key) = hkcu.open_subkey_with_flags(RUN_KEY_PATH, winreg::enums::KEY_READ) {
+            let val: String = run_key.get_value(APP_REG_NAME).unwrap();
+            assert!(val.starts_with('"') && val.ends_with('"'));
+            assert!(!val.contains("deps"));
+        }
 
         // Test disable
         assert!(disable_autostart().is_ok());
