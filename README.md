@@ -110,4 +110,4 @@ The resulting standalone executable will be located at `target/release/arc_paper
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](LICENSE.md).
