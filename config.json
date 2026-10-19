@@ -3,5 +3,6 @@
   "speed": 1.0,
   "brightness": 100,
   "fit_mode": "cover",
-  "is_manually_paused": false
+  "is_manually_paused": false,
+  "ring_size": 10
 }

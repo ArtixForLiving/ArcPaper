@@ -1,12 +1,63 @@
-/target
-/dist
-*.zip
+# ArcPaper .gitignore
+
+# ─── Rust Build Artifacts ─────────────────────────────────────────────────────
+/target/
+**/*.rs.bk
+
+# Cargo.lock is retained for reproducible application binary builds.
+# Uncomment the line below if you wish to exclude Cargo.lock:
+# Cargo.lock
+
+# ─── Binaries & Libraries ─────────────────────────────────────────────────────
+*.exe
 *.dll
 *.dll.a
+*.lib
 *.pdb
-*.exe
-SavedWallpapers/
+*.so
+*.dylib
+
+# ─── Release & Distribution Artifacts ─────────────────────────────────────────
+/dist/
+*.zip
+*.tar.gz
+
+# ─── Media & Video Files ──────────────────────────────────────────────────────
 *.mp4
+*.mkv
+*.webm
+*.avi
+*.mov
+*.wmv
+*.flv
+
+# ─── Local Wallpapers Directory ───────────────────────────────────────────────
+# Keep SavedWallpapers tracked via .gitkeep while ignoring all media inside
+SavedWallpapers/*
+!SavedWallpapers/.gitkeep
+
+# ─── Logs & Runtime Diagnostics ───────────────────────────────────────────────
 *.log
+app.log
+
+# ─── System & OS Files ────────────────────────────────────────────────────────
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# ─── IDE & Editor Configurations ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# ─── Local Testing & Utility Scripts ──────────────────────────────────────────
 measure.ps1
 run.bat

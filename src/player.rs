@@ -13,6 +13,11 @@ type FnMpvSetOptionString =
     unsafe extern "C" fn(*mut MpvHandle, *const c_char, *const c_char) -> c_int;
 type FnMpvSetPropertyString =
     unsafe extern "C" fn(*mut MpvHandle, *const c_char, *const c_char) -> c_int;
+type FnMpvGetProperty =
+    unsafe extern "C" fn(*mut MpvHandle, *const c_char, c_int, *mut c_void) -> c_int;
+type FnMpvGetPropertyString =
+    unsafe extern "C" fn(*mut MpvHandle, *const c_char) -> *mut c_char;
+type FnMpvFree = unsafe extern "C" fn(*mut c_void);
 type FnMpvCommand = unsafe extern "C" fn(*mut MpvHandle, *mut *const c_char) -> c_int;
 type FnMpvCommandString = unsafe extern "C" fn(*mut MpvHandle, *const c_char) -> c_int;
 type FnMpvTerminateDestroy = unsafe extern "C" fn(*mut MpvHandle);
@@ -24,6 +29,9 @@ pub struct MpvApi {
     pub mpv_initialize: FnMpvInitialize,
     pub mpv_set_option_string: FnMpvSetOptionString,
     pub mpv_set_property_string: FnMpvSetPropertyString,
+    pub mpv_get_property: FnMpvGetProperty,
+    pub mpv_get_property_string: FnMpvGetPropertyString,
+    pub mpv_free: FnMpvFree,
     pub mpv_command: FnMpvCommand,
     pub mpv_command_string: FnMpvCommandString,
     pub mpv_terminate_destroy: FnMpvTerminateDestroy,
@@ -53,6 +61,10 @@ impl MpvApi {
                 candidate_paths.insert(0, parent.join("libmpv-2.dll"));
                 candidate_paths.insert(1, parent.join("mpv-2.dll"));
             }
+        }
+        if let Ok(cwd) = std::env::current_dir() {
+            candidate_paths.insert(0, cwd.join("libmpv-2.dll"));
+            candidate_paths.insert(1, cwd.join("mpv-2.dll"));
         }
 
         let mut hmodule = None;
@@ -110,6 +122,11 @@ impl MpvApi {
                 mpv_set_property_string: std::mem::transmute(get_sym(
                     b"mpv_set_property_string\0",
                 )?),
+                mpv_get_property: std::mem::transmute(get_sym(b"mpv_get_property\0")?),
+                mpv_get_property_string: std::mem::transmute(get_sym(
+                    b"mpv_get_property_string\0",
+                )?),
+                mpv_free: std::mem::transmute(get_sym(b"mpv_free\0")?),
                 mpv_command: std::mem::transmute(get_sym(b"mpv_command\0")?),
                 mpv_command_string: std::mem::transmute(get_sym(b"mpv_command_string\0")?),
                 mpv_terminate_destroy: std::mem::transmute(get_sym(b"mpv_terminate_destroy\0")?),
@@ -171,13 +188,21 @@ impl MpvPlayer {
         player.set_option("aid", "no")?;
         player.set_option("sid", "no")?;
 
-        // 6. Pre-fetch demuxer buffer for instant seamless looping without disk I/O spikes
-        player.set_option("cache", "no")?;
-        player.set_option("demuxer-max-bytes", "4194304")?; // 4 MB buffer
-        player.set_option("demuxer-max-back-bytes", "1048576")?; // 1 MB back buffer
+        // 6. Disable all internal libmpv logging and OSD to prevent memory accumulation
+        let _ = player.set_option("msg-level", "all=no");
+        let _ = player.set_option("osd-level", "0");
+        let _ = player.set_option("terminal", "no");
+        let _ = player.set_option("msg-color", "no");
+
+        // 7. Trimmed Demuxer Buffer (Total 5 MB: 3 MB forward + 2 MB backward, static memory ceiling)
+        player.set_option("cache", "yes")?;
+        player.set_option("cache-on-disk", "no")?;
+        player.set_option("demuxer-max-bytes", "3145728")?; // 3 MB forward buffer
+        player.set_option("demuxer-max-back-bytes", "2097152")?; // 2 MB backward buffer
+        player.set_option("demuxer-donate-buffer", "no")?;
         player.set_option("demuxer-readahead-secs", "1.0")?;
         player.set_option("vd-lavc-threads", "1")?;
-        let _ = player.set_option("vd-lavc-dr", "yes");
+        player.set_option("vd-lavc-dr", "yes")?; // Direct Rendering straight to GPU
         let _ = player.set_option("icc-profile-auto", "no");
         let _ = player.set_option("gpu-shader-cache-dir", "");
 
@@ -228,6 +253,74 @@ impl MpvPlayer {
         } else {
             Ok(())
         }
+    }
+
+    /// Executes an MPV command with the provided slice of string arguments.
+    pub fn command(&self, args: &[&str]) -> Result<(), String> {
+        let c_args: Result<Vec<CString>, _> = args.iter().map(|&s| CString::new(s)).collect();
+        let c_args = c_args.map_err(|e| e.to_string())?;
+        let mut ptrs: Vec<*const c_char> = c_args.iter().map(|c| c.as_ptr()).collect();
+        ptrs.push(std::ptr::null());
+        let err = unsafe { (self.api.mpv_command)(self.handle, ptrs.as_mut_ptr()) };
+        if err < 0 {
+            Err(format!(
+                "Error executing command {:?}: {}",
+                args,
+                self.error_str(err)
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Applies a virtual timeline ring buffer using MPV's `edl://` protocol.
+    /// This stitches `ring_size` loop slots into a single virtual timeline without multi-item playlist resets,
+    /// preventing D3D11VA hardware decoder re-initialization, CPU spikes, and memory bloating.
+    pub fn apply_ring_buffer(&self, video_path: &str, ring_size: usize) -> Result<(), String> {
+        let clean_path = video_path.replace('\\', "/");
+        let path_len = clean_path.len();
+        let edl_entry = format!("%{}%{}", path_len, clean_path);
+
+        let count = if ring_size == 0 { 10 } else { ring_size };
+        let mut segments: Vec<&str> = Vec::with_capacity(count);
+        for _ in 0..count {
+            segments.push(&edl_entry);
+        }
+        let edl_url = format!("edl://{}", segments.join(";"));
+
+        let c_loadfile = CString::new("loadfile").map_err(|e| e.to_string())?;
+        let c_url = CString::new(edl_url).map_err(|e| e.to_string())?;
+        let c_replace = CString::new("replace").map_err(|e| e.to_string())?;
+        let mut args: [*const c_char; 4] = [
+            c_loadfile.as_ptr(),
+            c_url.as_ptr(),
+            c_replace.as_ptr(),
+            std::ptr::null(),
+        ];
+        let err = unsafe { (self.api.mpv_command)(self.handle, args.as_mut_ptr()) };
+        if err < 0 {
+            return Err(format!(
+                "Error loading EDL virtual timeline '{}': {}",
+                video_path,
+                self.error_str(err)
+            ));
+        }
+
+        // Configure single-stream seamless infinite loop properties
+        let _ = self.set_property("loop-file", "inf");
+        let _ = self.set_property("keep-open", "yes");
+        let _ = self.set_property("scale", "bilinear");
+        let _ = self.set_property("dscale", "mitchell");
+        let _ = self.set_property("keepaspect", "yes");
+        let _ = self.set_property("panscan", "1.0");
+        let _ = self.set_property("video-sync", "display-desync");
+        let _ = self.set_property("hr-seek", "no");
+        let _ = self.set_property("aid", "no");
+        let _ = self.set_property("sid", "no");
+        let _ = self.set_property("msg-level", "all=no");
+        let _ = self.set_property("osd-level", "0");
+
+        Ok(())
     }
 
     /// Changes the active wallpaper seamlessly using MPV's `loadfile <path> replace`.
@@ -302,6 +395,91 @@ impl MpvPlayer {
                 // Default: cover (fill & crop with aspect ratio preserved)
                 self.set_property("keepaspect", "yes")?;
                 self.set_property("panscan", "1.0")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn get_property_f64(&self, name: &str) -> Result<f64, String> {
+        let c_name = CString::new(name).map_err(|e| e.to_string())?;
+        let mut val: f64 = 0.0;
+        let err = unsafe {
+            (self.api.mpv_get_property)(
+                self.handle,
+                c_name.as_ptr(),
+                5, // MPV_FORMAT_DOUBLE
+                &mut val as *mut f64 as *mut c_void,
+            )
+        };
+        if err < 0 {
+            Err(format!(
+                "Error getting property '{}': {}",
+                name,
+                self.error_str(err)
+            ))
+        } else {
+            Ok(val)
+        }
+    }
+
+    pub fn get_property_string(&self, name: &str) -> Result<String, String> {
+        let c_name = CString::new(name).map_err(|e| e.to_string())?;
+        let ptr = unsafe { (self.api.mpv_get_property_string)(self.handle, c_name.as_ptr()) };
+        if ptr.is_null() {
+            Err(format!("Property '{}' returned null", name))
+        } else {
+            let val = unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() };
+            unsafe { (self.api.mpv_free)(ptr as *mut c_void) };
+            Ok(val)
+        }
+    }
+
+    pub fn get_native_fps(&self) -> Option<f64> {
+        if let Ok(fps) = self.get_property_f64("container-fps") {
+            if fps > 1.0 {
+                return Some(fps);
+            }
+        }
+        if let Ok(fps) = self.get_property_f64("estimated-vf-fps") {
+            if fps > 1.0 {
+                return Some(fps);
+            }
+        }
+        if let Ok(fps) = self.get_property_f64("fps") {
+            if fps > 1.0 {
+                return Some(fps);
+            }
+        }
+        None
+    }
+
+    pub fn detect_native_fps(&self) -> Option<f64> {
+        for _ in 0..40 {
+            if let Some(fps) = self.get_native_fps() {
+                return Some(fps);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        None
+    }
+
+    pub fn apply_fps_limit(&self, target_fps: Option<u32>) -> Result<(), String> {
+        let _ = self.set_property("vf", "");
+        match target_fps {
+            Some(fps) if fps <= 15 && fps > 0 => {
+                let _ = self.set_property("vd-lavc-skipframe", "nonref");
+                let _ = self.set_property("vd-lavc-skiploopfilter", "all");
+                let _ = self.set_property("framedrop", "decoder+vo");
+            }
+            Some(fps) if fps > 15 => {
+                let _ = self.set_property("vd-lavc-skipframe", "default");
+                let _ = self.set_property("vd-lavc-skiploopfilter", "nonref");
+                let _ = self.set_property("framedrop", "vo");
+            }
+            _ => {
+                let _ = self.set_property("vd-lavc-skipframe", "default");
+                let _ = self.set_property("vd-lavc-skiploopfilter", "default");
+                let _ = self.set_property("framedrop", "no");
             }
         }
         Ok(())
@@ -397,6 +575,75 @@ pub fn set_fit(fit_mode: &str) -> Result<(), String> {
     }
 }
 
+/// Applies a ring buffer containing `ring_size` loop slots using the global MPV player instance.
+pub fn apply_ring_buffer(video_path: &str, ring_size: usize) -> Result<(), String> {
+    let lock = GLOBAL_PLAYER.lock().map_err(|e| e.to_string())?;
+    if let Some(ref player) = *lock {
+        player.apply_ring_buffer(video_path, ring_size)
+    } else {
+        Err("MPV Player is not initialized. Call init_player(wid) first.".to_string())
+    }
+}
+
+/// Executes an arbitrary MPV command on the global MPV player instance.
+#[allow(dead_code)]
+pub fn command(args: &[&str]) -> Result<(), String> {
+    let lock = GLOBAL_PLAYER.lock().map_err(|e| e.to_string())?;
+    if let Some(ref player) = *lock {
+        player.command(args)
+    } else {
+        Err("MPV Player is not initialized. Call init_player(wid) first.".to_string())
+    }
+}
+
+#[allow(dead_code)]
+pub fn get_property_f64(name: &str) -> Result<f64, String> {
+    let lock = GLOBAL_PLAYER.lock().map_err(|e| e.to_string())?;
+    if let Some(ref player) = *lock {
+        player.get_property_f64(name)
+    } else {
+        Err("MPV Player is not initialized.".to_string())
+    }
+}
+
+#[allow(dead_code)]
+pub fn get_property_string(name: &str) -> Result<String, String> {
+    let lock = GLOBAL_PLAYER.lock().map_err(|e| e.to_string())?;
+    if let Some(ref player) = *lock {
+        player.get_property_string(name)
+    } else {
+        Err("MPV Player is not initialized.".to_string())
+    }
+}
+
+#[allow(dead_code)]
+pub fn get_native_fps() -> Option<f64> {
+    let lock = GLOBAL_PLAYER.lock().ok()?;
+    if let Some(ref player) = *lock {
+        player.get_native_fps()
+    } else {
+        None
+    }
+}
+
+pub fn detect_native_fps() -> Option<f64> {
+    let lock = GLOBAL_PLAYER.lock().ok()?;
+    if let Some(ref player) = *lock {
+        player.detect_native_fps()
+    } else {
+        None
+    }
+}
+
+pub fn apply_fps_limit(target_fps: Option<u32>) -> Result<(), String> {
+    let lock = GLOBAL_PLAYER.lock().map_err(|e| e.to_string())?;
+    if let Some(ref player) = *lock {
+        player.apply_fps_limit(target_fps)
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,17 +658,67 @@ mod tests {
         let init_res = init_player(HWND::default());
         assert!(init_res.is_ok(), "Failed init_player: {:?}", init_res.err());
 
-        let files = std::fs::read_dir("D:\\Arc Paper\\SavedWallpapers").unwrap();
-        for entry in files.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if path
-                .extension()
-                .map_or(false, |ext| ext.eq_ignore_ascii_case("mp4"))
-            {
-                let res = play_wallpaper(&path.to_string_lossy());
-                println!("play_wallpaper result for {:?}: {:?}", path, res);
-                assert!(res.is_ok());
-                break;
+        let saved_dir = if std::path::Path::new("SavedWallpapers").exists() {
+            std::path::PathBuf::from("SavedWallpapers")
+        } else {
+            std::path::PathBuf::from("D:\\Arc Paper\\SavedWallpapers")
+        };
+
+        if let Ok(files) = std::fs::read_dir(saved_dir) {
+            for entry in files.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path
+                    .extension()
+                    .map_or(false, |ext| ext.eq_ignore_ascii_case("mp4"))
+                {
+                    let res = play_wallpaper(&path.to_string_lossy());
+                    println!("play_wallpaper result for {:?}: {:?}", path, res);
+                    assert!(res.is_ok());
+
+                    // Test dynamic ring buffer with 5, 10, and 20 loops
+                    assert!(apply_ring_buffer(&path.to_string_lossy(), 5).is_ok());
+                    assert!(apply_ring_buffer(&path.to_string_lossy(), 10).is_ok());
+                    assert!(apply_ring_buffer(&path.to_string_lossy(), 20).is_ok());
+
+                    // Test native FPS detection
+                    let fps = detect_native_fps();
+                    println!("detect_native_fps result for {:?}: {:?}", path, fps);
+
+                    // Test FPS limit application across all profiles
+                    assert!(apply_fps_limit(Some(30)).is_ok());
+                    assert!(apply_fps_limit(Some(20)).is_ok());
+                    assert!(apply_fps_limit(Some(15)).is_ok());
+                    assert!(apply_fps_limit(None).is_ok());
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_fps_detection_timing() {
+        let _ = init_player(HWND::default());
+        let saved_dir = if std::path::Path::new("SavedWallpapers").exists() {
+            std::path::PathBuf::from("SavedWallpapers")
+        } else {
+            std::path::PathBuf::from("D:\\Arc Paper\\SavedWallpapers")
+        };
+        if let Ok(files) = std::fs::read_dir(saved_dir) {
+            for entry in files.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp4")) {
+                    let _ = apply_ring_buffer(&path.to_string_lossy(), 10);
+                    for i in 1..=40 {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        let c_fps = get_property_f64("container-fps");
+                        let v_fps = get_property_f64("estimated-vf-fps");
+                        println!("Attempt {}: container-fps={:?}, estimated-vf-fps={:?}", i, c_fps, v_fps);
+                        if c_fps.is_ok() || v_fps.is_ok() {
+                            break;
+                        }
+                    }
+                    break;
+                }
             }
         }
     }

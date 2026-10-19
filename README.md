@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ArtixForLiving/ArcPaper/releases"><img src="https://img.shields.io/github/v/release/ArtixForLiving/ArcPaper?color=00f2fe&style=for-the-badge" alt="Release v1.2.0" /></a>
+  <a href="https://github.com/ArtixForLiving/ArcPaper/releases"><img src="https://img.shields.io/github/v/release/ArtixForLiving/ArcPaper?color=00f2fe&style=for-the-badge" alt="Release v1.5.0" /></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Language-Rust%202024-orange.svg?style=for-the-badge&logo=rust" alt="Rust" /></a>
   <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010-0078d4.svg?style=for-the-badge&logo=windows" alt="Windows" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-10b981.svg?style=for-the-badge" alt="License MIT" /></a>
@@ -41,11 +41,16 @@
     - **Upload New Wallpaper** (file picker dialog)
     - **Select Active Wallpaper** (switch on-the-fly with live active indicators)
     - **Pause / Resume Wallpaper**
-    - **Playback Speed** (0.5x, 1.0x, 1.5x)
-    - **Screen Fit Mode** (Cover, Fill, Contain)
-    - **Brightness Control** (100%, 75%, 50%)
+    - **Display & Visuals Submenu**:
+      - **Playback Speed** (0.5x, 1.0x, 1.5x)
+      - **Screen Fit Mode** (Cover, Fill, Contain)
+      - **Brightness Control** (100%, 75%, 50%)
+      - **Target FPS Profiles** (Unlimited, 30 FPS, 20 FPS, 15 FPS via `vd-lavc` skipframe)
+      - **EDL Ring Buffer Looping** (5x, 10x, 20x virtual timeline loops)
+    - **Open Wallpapers Folder** & **Open Logs**
     - **Check for Updates...** (non-blocking GitHub release check with native Win32 dialog)
     - **Start with Windows** (one-click toggle for automatic startup)
+    - **Uninstall ArcPaper** (cleanly deregisters autostart and cleans up)
 
 - **⚙️ Windows Auto-Start Integration**
   - Cleanly registers or unregisters from Windows Registry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) without external background services.
@@ -68,7 +73,7 @@
 
 ### Quick Start (Portable)
 
-1. Download the latest release package: [`ArcPaper-v1.2.0-win64.zip`](https://github.com/ArtixForLiving/ArcPaper/releases/latest).
+1. Download the latest release package: [`ArcPaper-v1.5.0-win64.zip`](https://github.com/ArtixForLiving/ArcPaper/releases/latest).
 2. Extract the archive to any folder (e.g., `C:\Tools\ArcPaper` or `D:\ArcPaper`).
 3. Run `arc_paper.exe`.
 4. Right-click the **ArcPaper** icon in your Windows System Tray to:

@@ -22,7 +22,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GWL_STYLE, GetClassNameW, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW,
     GetWindowRect, GetWindowThreadProcessId, IDYES, IsIconic, IsWindowVisible, IsZoomed,
     MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_YESNO, MessageBoxW, SM_CXSCREEN, SM_CYSCREEN,
-    SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, WS_CLIPCHILDREN,
+    SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER, SWP_NOACTIVATE, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, SystemParametersInfoW, WS_CLIPCHILDREN,
 };
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
@@ -49,18 +50,19 @@ fn log_msg(msg: &str) {
 /// Trims the process working set, releasing unneeded driver initialization and libmpv DLL pages.
 fn trim_working_set() {
     unsafe {
-        use windows::Win32::System::ProcessStatus::K32EmptyWorkingSet;
         use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
         let proc = GetCurrentProcess();
         let _ = SetProcessWorkingSetSize(proc, usize::MAX, usize::MAX);
-        let _ = K32EmptyWorkingSet(proc);
     }
 }
 
+/// Spawns a dedicated thread that waits for the specified duration (e.g. 500ms),
+/// then trims the process working set to release heap fragments and mpv runtime allocations.
 fn delayed_trim(delay_ms: u64) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(delay_ms));
         trim_working_set();
+        log_msg("[ArcPaper] Memory working set trimmed via SetProcessWorkingSetSize.");
     });
 }
 
@@ -136,6 +138,73 @@ fn disable_autostart() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn restore_default_wallpaper() {
+    unsafe {
+        let _ = SystemParametersInfoW(
+            SPI_SETDESKWALLPAPER,
+            0,
+            Some(std::ptr::null_mut()),
+            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE,
+        );
+    }
+}
+
+/// Uninstalls ArcPaper by removing startup registry entries, restoring the default desktop wallpaper,
+/// launching a background self-deletion script, and exiting the process cleanly.
+fn perform_uninstall() {
+    let title = HSTRING::from("Uninstall ArcPaper");
+    let confirm_msg = HSTRING::from(
+        "Are you sure you want to uninstall ArcPaper?\n\nThis will remove all startup registry entries, restore your default desktop wallpaper, and delete application binaries.",
+    );
+    let result = unsafe {
+        MessageBoxW(None, &confirm_msg, &title, MB_ICONWARNING | MB_YESNO)
+    };
+    if result != IDYES {
+        log_msg("[ArcPaper] Uninstallation cancelled by user.");
+        return;
+    }
+
+    log_msg("[ArcPaper] User confirmed uninstallation. Cleaning up system resources...");
+
+    // 1. Remove registry startup entry
+    if let Err(e) = disable_autostart() {
+        log_msg(&format!(
+            "[ArcPaper] Warning: Failed to remove startup registry entry: {:?}",
+            e
+        ));
+    }
+
+    // 2. Restore default desktop wallpaper
+    restore_default_wallpaper();
+
+    // 3. Launch self-delete script in the background
+    let exe_path = get_main_exe_path();
+    let config_path = get_config_path();
+    let cmd_str = format!(
+        "ping 127.0.0.1 -n 3 > nul & del /F /Q \"{}\" \"{}\"",
+        exe_path.display(),
+        config_path.display()
+    );
+
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let _ = std::process::Command::new("cmd.exe")
+        .args(["/C", &cmd_str])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+
+    // 4. Show success confirmation dialog
+    let done_msg = HSTRING::from(
+        "ArcPaper has been successfully uninstalled. Registry entries have been removed.",
+    );
+    unsafe {
+        MessageBoxW(None, &done_msg, &title, MB_ICONINFORMATION | MB_OK);
+    }
+
+    // 5. Clean exit
+    std::process::exit(0);
+}
+
 // ─── Update Checker ───────────────────────────────────────────────────────────
 
 const GITHUB_RELEASES_API_URL: &str =
@@ -203,8 +272,9 @@ fn check_for_updates() {
     let _guard = UpdateCheckGuard;
 
     log_msg("[ArcPaper] Checking for updates from GitHub releases...");
+    let user_agent = format!("ArcPaper/{}", env!("CARGO_PKG_VERSION"));
     let response = ureq::get(GITHUB_RELEASES_API_URL)
-        .set("User-Agent", "ArcPaper-App")
+        .set("User-Agent", &user_agent)
         .timeout(Duration::from_secs(10))
         .call();
 
@@ -365,6 +435,10 @@ fn list_mp4_files(dir: &Path) -> Vec<String> {
 
 // ─── Configuration (config.json) ─────────────────────────────────────────────
 
+fn default_ring_size() -> usize {
+    10
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AppConfig {
     pub active_video: Option<String>,
@@ -372,6 +446,10 @@ struct AppConfig {
     pub brightness: u32,
     pub fit_mode: String,
     pub is_manually_paused: bool,
+    #[serde(default = "default_ring_size")]
+    pub ring_size: usize,
+    #[serde(default)]
+    pub target_fps: Option<u32>,
 }
 
 impl Default for AppConfig {
@@ -382,6 +460,8 @@ impl Default for AppConfig {
             brightness: 100,
             fit_mode: "cover".to_string(),
             is_manually_paused: false,
+            ring_size: 10,
+            target_fps: None,
         }
     }
 }
@@ -390,7 +470,10 @@ fn load_config() -> AppConfig {
     let path = get_config_path();
     if path.is_file() {
         if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(cfg) = serde_json::from_str::<AppConfig>(&content) {
+            if let Ok(mut cfg) = serde_json::from_str::<AppConfig>(&content) {
+                if cfg.ring_size != 5 && cfg.ring_size != 10 && cfg.ring_size != 20 {
+                    cfg.ring_size = 10;
+                }
                 log_msg(&format!("[ArcPaper] Loaded configuration from {:?}", path));
                 return cfg;
             }
@@ -425,17 +508,46 @@ struct TrayControls {
     speed_map: HashMap<MenuId, f32>,
     fit_map: HashMap<MenuId, &'static str>,
     brightness_map: HashMap<MenuId, u32>,
+    ring_size_map: HashMap<MenuId, usize>,
+    fps_map: HashMap<MenuId, Option<u32>>,
     wallpaper_map: HashMap<MenuId, String>,
     check_updates_id: MenuId,
     autostart_id: MenuId,
     autostart_item: CheckMenuItem,
+    uninstall_id: MenuId,
     exit_id: MenuId,
+}
+
+/// Returns the dynamic target FPS options based on native video framerate.
+fn get_fps_options(native_fps: u32) -> &'static [(u32, &'static str)] {
+    if native_fps > 45 {
+        &[
+            (45, "45 FPS"),
+            (30, "30 FPS"),
+            (20, "20 FPS"),
+            (15, "15 FPS (Power Saver)"),
+        ]
+    } else if native_fps > 35 {
+        &[
+            (30, "30 FPS"),
+            (20, "20 FPS"),
+            (15, "15 FPS (Power Saver)"),
+        ]
+    } else {
+        &[
+            (20, "20 FPS"),
+            (15, "15 FPS (Power Saver)"),
+        ]
+    }
 }
 
 fn build_tray_menu(
     saved_wallpapers_dir: &Path,
     is_paused: bool,
     active_wp: Option<&str>,
+    ring_size: usize,
+    native_fps: u32,
+    target_fps: Option<u32>,
 ) -> (Menu, TrayControls) {
     let menu = Menu::new();
 
@@ -444,9 +556,7 @@ fn build_tray_menu(
     let upload_id = upload_item.id().clone();
     let _ = menu.append(&upload_item);
 
-    let _ = menu.append(&PredefinedMenuItem::separator());
-
-    // 3. Select Active Wallpaper Submenu
+    // 2. Select Active Wallpaper Submenu
     let apply_submenu = Submenu::new("Select Active Wallpaper", true);
     let mut wallpaper_map = HashMap::new();
     let mp4_files = list_mp4_files(saved_wallpapers_dir);
@@ -468,9 +578,7 @@ fn build_tray_menu(
     }
     let _ = menu.append(&apply_submenu);
 
-    let _ = menu.append(&PredefinedMenuItem::separator());
-
-    // 4. Play / Pause Control
+    // 3. Play / Pause Control
     let pause_text = if is_paused {
         "Resume Wallpaper"
     } else {
@@ -480,39 +588,12 @@ fn build_tray_menu(
     let pause_resume_id = pause_resume_item.id().clone();
     let _ = menu.append(&pause_resume_item);
 
-    // 5. Playback Speed Submenu
-    let speed_submenu = Submenu::new("Playback Speed", true);
-    let speed_0_5 = MenuItem::new("0.5x Slow", true, None);
-    let speed_1_0 = MenuItem::new("1.0x Normal", true, None);
-    let speed_1_5 = MenuItem::new("1.5x Fast", true, None);
+    let _ = menu.append(&PredefinedMenuItem::separator());
 
-    let mut speed_map = HashMap::new();
-    speed_map.insert(speed_0_5.id().clone(), 0.5f32);
-    speed_map.insert(speed_1_0.id().clone(), 1.0f32);
-    speed_map.insert(speed_1_5.id().clone(), 1.5f32);
+    // 4. Display & Visuals Submenu
+    let visuals_submenu = Submenu::new("Display & Visuals", true);
 
-    let _ = speed_submenu.append(&speed_0_5);
-    let _ = speed_submenu.append(&speed_1_0);
-    let _ = speed_submenu.append(&speed_1_5);
-    let _ = menu.append(&speed_submenu);
-
-    // 6. Screen Fit Submenu
-    let fit_submenu = Submenu::new("Screen Fit", true);
-    let fit_cover = MenuItem::new("Cover (Fill & Crop)", true, None);
-    let fit_fill = MenuItem::new("Fill (Stretch)", true, None);
-    let fit_contain = MenuItem::new("Contain (Original)", true, None);
-
-    let mut fit_map = HashMap::new();
-    fit_map.insert(fit_cover.id().clone(), "cover");
-    fit_map.insert(fit_fill.id().clone(), "fill");
-    fit_map.insert(fit_contain.id().clone(), "contain");
-
-    let _ = fit_submenu.append(&fit_cover);
-    let _ = fit_submenu.append(&fit_fill);
-    let _ = fit_submenu.append(&fit_contain);
-    let _ = menu.append(&fit_submenu);
-
-    // 7. Brightness Submenu
+    // Brightness Submenu
     let brightness_submenu = Submenu::new("Brightness", true);
     let bright_100 = MenuItem::new("100% (Normal)", true, None);
     let bright_75 = MenuItem::new("75% (Dim)", true, None);
@@ -526,22 +607,101 @@ fn build_tray_menu(
     let _ = brightness_submenu.append(&bright_100);
     let _ = brightness_submenu.append(&bright_75);
     let _ = brightness_submenu.append(&bright_50);
-    let _ = menu.append(&brightness_submenu);
+    let _ = visuals_submenu.append(&brightness_submenu);
+
+    // Screen Fit Submenu
+    let fit_submenu = Submenu::new("Screen Fit", true);
+    let fit_cover = MenuItem::new("Cover (Fill & Crop)", true, None);
+    let fit_fill = MenuItem::new("Fill (Stretch)", true, None);
+    let fit_contain = MenuItem::new("Contain (Original)", true, None);
+
+    let mut fit_map = HashMap::new();
+    fit_map.insert(fit_cover.id().clone(), "cover");
+    fit_map.insert(fit_fill.id().clone(), "fill");
+    fit_map.insert(fit_contain.id().clone(), "contain");
+
+    let _ = fit_submenu.append(&fit_cover);
+    let _ = fit_submenu.append(&fit_fill);
+    let _ = fit_submenu.append(&fit_contain);
+    let _ = visuals_submenu.append(&fit_submenu);
+
+    let _ = menu.append(&visuals_submenu);
+
+    // 5. Performance Submenu
+    let performance_submenu = Submenu::new("Performance", true);
+
+    // Playback Speed Submenu
+    let speed_submenu = Submenu::new("Playback Speed", true);
+    let speed_0_5 = MenuItem::new("0.5x Slow", true, None);
+    let speed_1_0 = MenuItem::new("1.0x Normal", true, None);
+    let speed_1_5 = MenuItem::new("1.5x Fast", true, None);
+
+    let mut speed_map = HashMap::new();
+    speed_map.insert(speed_0_5.id().clone(), 0.5f32);
+    speed_map.insert(speed_1_0.id().clone(), 1.0f32);
+    speed_map.insert(speed_1_5.id().clone(), 1.5f32);
+
+    let _ = speed_submenu.append(&speed_0_5);
+    let _ = speed_submenu.append(&speed_1_0);
+    let _ = speed_submenu.append(&speed_1_5);
+    let _ = performance_submenu.append(&speed_submenu);
+
+    // Target FPS Submenu
+    let fps_submenu = Submenu::new("Target FPS", true);
+    let mut fps_map = HashMap::new();
+
+    let is_native = target_fps.unwrap_or(0) == 0;
+    let native_item = CheckMenuItem::new("Native (Original)", true, is_native, None);
+    fps_map.insert(native_item.id().clone(), None);
+    let _ = fps_submenu.append(&native_item);
+
+    let fps_options = get_fps_options(native_fps);
+
+    for &(fps_val, label) in fps_options {
+        let is_checked = target_fps == Some(fps_val);
+        let item = CheckMenuItem::new(label, true, is_checked, None);
+        fps_map.insert(item.id().clone(), Some(fps_val));
+        let _ = fps_submenu.append(&item);
+    }
+    let _ = performance_submenu.append(&fps_submenu);
+
+    // Buffer Zone Ring Submenu
+    let buffer_submenu = Submenu::new("Buffer Zone Ring", true);
+    let ring_5_item = CheckMenuItem::new("5 Loops (Low RAM)", true, ring_size == 5, None);
+    let ring_10_item = CheckMenuItem::new("10 Loops (Balanced)", true, ring_size == 10, None);
+    let ring_20_item = CheckMenuItem::new("20 Loops (Max Smooth)", true, ring_size == 20, None);
+
+    let mut ring_size_map = HashMap::new();
+    ring_size_map.insert(ring_5_item.id().clone(), 5usize);
+    ring_size_map.insert(ring_10_item.id().clone(), 10usize);
+    ring_size_map.insert(ring_20_item.id().clone(), 20usize);
+
+    let _ = buffer_submenu.append(&ring_5_item);
+    let _ = buffer_submenu.append(&ring_10_item);
+    let _ = buffer_submenu.append(&ring_20_item);
+    let _ = performance_submenu.append(&buffer_submenu);
+
+    let _ = menu.append(&performance_submenu);
 
     let _ = menu.append(&PredefinedMenuItem::separator());
 
-    // 8. Check for Updates
+    // 6. Check for Updates
     let check_updates_item = MenuItem::new("Check for Updates...", true, None);
     let check_updates_id = check_updates_item.id().clone();
     let _ = menu.append(&check_updates_item);
 
-    // 9. Auto-start
+    // 7. Auto-start
     let autostart_enabled = is_autostart_enabled();
     let autostart_item = CheckMenuItem::new("Start with Windows", true, autostart_enabled, None);
     let autostart_id = autostart_item.id().clone();
     let _ = menu.append(&autostart_item);
 
-    // 10. Exit
+    // 8. Uninstall ArcPaper
+    let uninstall_item = MenuItem::new("Uninstall ArcPaper...", true, None);
+    let uninstall_id = uninstall_item.id().clone();
+    let _ = menu.append(&uninstall_item);
+
+    // 9. Exit
     let exit_item = MenuItem::new("Exit ArcPaper", true, None);
     let exit_id = exit_item.id().clone();
     let _ = menu.append(&exit_item);
@@ -552,10 +712,13 @@ fn build_tray_menu(
         speed_map,
         fit_map,
         brightness_map,
+        ring_size_map,
+        fps_map,
         wallpaper_map,
         check_updates_id,
         autostart_id,
         autostart_item,
+        uninstall_id,
         exit_id,
     };
 
@@ -622,6 +785,38 @@ unsafe fn is_foreground_covering_screen(
 
         false
     }
+}
+
+// ─── Playback Helper ──────────────────────────────────────────────────────────
+
+/// Helper function to configure and populate the dynamic ring buffer for video wallpaper playback.
+/// Uses an `edl://` virtual timeline to stitch `ring_size` loop slots into a single seamless stream,
+/// keeping the D3D11VA hardware decoder alive with zero stutter and static bitstream cache.
+fn apply_ring_buffer(video_path: &str, ring_size: usize) -> Result<(), String> {
+    player::apply_ring_buffer(video_path, ring_size)
+}
+
+/// Helper function to apply decoder-level hardware skipping and frame-drop throttling to MPV.
+/// Completely avoids software video filters (`vf`) to preserve zero-copy VRAM and avoid memory allocation.
+fn apply_fps_limit(target_fps: Option<u32>) -> Result<(), String> {
+    match target_fps {
+        Some(fps) if fps <= 15 && fps > 0 => {
+            log_msg(&format!(
+                "[ArcPaper] Applying FPS throttling: {} FPS (vd-lavc-skipframe=nonref, vd-lavc-skiploopfilter=all, framedrop=decoder+vo, vf=\"\")",
+                fps
+            ));
+        }
+        Some(fps) if fps > 15 => {
+            log_msg(&format!(
+                "[ArcPaper] Applying FPS throttling: {} FPS (vd-lavc-skipframe=default, vd-lavc-skiploopfilter=nonref, framedrop=vo, vf=\"\")",
+                fps
+            ));
+        }
+        _ => {
+            log_msg("[ArcPaper] Resetting FPS throttling to Native (vd-lavc-skipframe=default, vd-lavc-skiploopfilter=default, framedrop=no, vf=\"\")");
+        }
+    }
+    player::apply_fps_limit(target_fps)
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -787,6 +982,7 @@ fn main() {
     // 4. Load persisted user configuration
     let initial_config = load_config();
     let wp_state: Rc<RefCell<AppConfig>> = Rc::new(RefCell::new(initial_config));
+    let mut current_native_fps = 60u32;
 
     // 5. Initialize Tao EventLoop for System Tray and Auto-Pause
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
@@ -799,6 +995,9 @@ fn main() {
                 &saved_wallpapers_dir,
                 wp_state.borrow().is_manually_paused,
                 wp_state.borrow().active_video.as_deref(),
+                wp_state.borrow().ring_size,
+                current_native_fps,
+                wp_state.borrow().target_fps,
             );
             match TrayIconBuilder::new()
                 .with_menu(Box::new(menu))
@@ -863,26 +1062,48 @@ fn main() {
 
     if let Some(name) = video_to_play {
         let video_path = saved_wallpapers_dir.join(&name);
+        let ring_size = wp_state.borrow().ring_size;
         log_msg(&format!(
-            "[ArcPaper] Auto-playing wallpaper on startup: {:?}",
-            video_path
+            "[ArcPaper] Auto-playing wallpaper on startup (ring_size {}): {:?}",
+            ring_size, video_path
         ));
-        if let Err(e) = player::change_wallpaper(&video_path.to_string_lossy()) {
-            log_msg(&format!("[ArcPaper] MPV change_wallpaper error: {}", e));
+        if let Err(e) = apply_ring_buffer(&video_path.to_string_lossy(), ring_size) {
+            log_msg(&format!("[ArcPaper] MPV apply_ring_buffer error: {}", e));
         } else {
             log_msg(&format!(
                 "[ArcPaper] MPV playback started for: {:?}",
                 video_path
             ));
         }
+
+        if let Some(fps) = player::detect_native_fps() {
+            current_native_fps = fps.round() as u32;
+            log_msg(&format!(
+                "[ArcPaper] Detected native video FPS: {:.2} (rounded: {})",
+                fps, current_native_fps
+            ));
+        }
+
         let state = wp_state.borrow();
         let _ = player::set_speed(state.speed);
         let _ = player::set_brightness(state.brightness);
         let _ = player::set_fit(&state.fit_mode);
+        let _ = apply_fps_limit(state.target_fps);
         if state.is_manually_paused {
             let _ = player::set_pause(true);
         }
-        delayed_trim(2000);
+        delayed_trim(3000);
+
+        let (new_menu, new_controls) = build_tray_menu(
+            &saved_wallpapers_dir,
+            state.is_manually_paused,
+            state.active_video.as_deref(),
+            state.ring_size,
+            current_native_fps,
+            state.target_fps,
+        );
+        tray_icon.set_menu(Some(Box::new(new_menu)));
+        controls = new_controls;
     }
 
     // 8. Start Smart Auto-Pause background monitor thread
@@ -981,20 +1202,39 @@ fn main() {
                             } else {
                                 log_msg(&format!("[ArcPaper] Video copied to {:?}", dest_path));
 
-                                // Seamless wallpaper switch via MPV IPC `loadfile <path> replace`
-                                if let Err(e) = player::change_wallpaper(&dest_path.to_string_lossy()) {
-                                    log_msg(&format!("[ArcPaper] Error changing wallpaper: {}", e));
+                                // Seamless wallpaper switch via MPV IPC ring buffer
+                                let ring_size = wp_state.borrow().ring_size;
+                                if let Err(e) = apply_ring_buffer(&dest_path.to_string_lossy(), ring_size) {
+                                    log_msg(&format!("[ArcPaper] Error applying ring buffer: {}", e));
                                 }
-                                delayed_trim(2000);
+                                delayed_trim(500);
+
+                                if let Some(fps) = player::detect_native_fps() {
+                                    current_native_fps = fps.round() as u32;
+                                    log_msg(&format!(
+                                        "[ArcPaper] Detected native video FPS: {:.2} (rounded: {})",
+                                        fps, current_native_fps
+                                    ));
+                                }
 
                                 let mut state = wp_state.borrow_mut();
                                 state.active_video = Some(file_name.to_string());
                                 state.is_manually_paused = false;
                                 is_auto_paused = false;
+
+                                if let Some(target) = state.target_fps {
+                                    if target >= current_native_fps {
+                                        state.target_fps = None;
+                                    }
+                                }
                                 save_config(&state);
+
+                                let _ = apply_fps_limit(state.target_fps);
 
                                 let is_paused = state.is_manually_paused;
                                 let active_name = state.active_video.clone();
+                                let ring_size = state.ring_size;
+                                let target_fps = state.target_fps;
                                 drop(state);
 
                                 // Rebuild tray menu with new list and active marker
@@ -1002,6 +1242,9 @@ fn main() {
                                     &saved_wallpapers_dir,
                                     is_paused,
                                     active_name.as_deref(),
+                                    ring_size,
+                                    current_native_fps,
+                                    target_fps,
                                 );
                                 tray_icon.set_menu(Some(Box::new(new_menu)));
                                 controls = new_controls;
@@ -1027,12 +1270,17 @@ fn main() {
 
                     let is_paused = state.is_manually_paused;
                     let active_name = state.active_video.clone();
+                    let ring_size = state.ring_size;
+                    let target_fps = state.target_fps;
                     drop(state);
 
                     let (new_menu, new_controls) = build_tray_menu(
                         &saved_wallpapers_dir,
                         is_paused,
                         active_name.as_deref(),
+                        ring_size,
+                        current_native_fps,
+                        target_fps,
                     );
                     tray_icon.set_menu(Some(Box::new(new_menu)));
                     controls = new_controls;
@@ -1043,6 +1291,7 @@ fn main() {
                     let mut state = wp_state.borrow_mut();
                     state.speed = speed;
                     save_config(&state);
+                    delayed_trim(500);
 
                 } else if let Some(&fit) = controls.fit_map.get(&event_id) {
                     log_msg(&format!("[ArcPaper] Setting display fit mode: {}", fit));
@@ -1050,6 +1299,7 @@ fn main() {
                     let mut state = wp_state.borrow_mut();
                     state.fit_mode = fit.to_string();
                     save_config(&state);
+                    delayed_trim(500);
 
                 } else if let Some(&brightness) = controls.brightness_map.get(&event_id) {
                     log_msg(&format!("[ArcPaper] Setting brightness: {}", brightness));
@@ -1057,6 +1307,57 @@ fn main() {
                     let mut state = wp_state.borrow_mut();
                     state.brightness = brightness;
                     save_config(&state);
+                    delayed_trim(500);
+
+                } else if let Some(&new_ring_size) = controls.ring_size_map.get(&event_id) {
+                    log_msg(&format!(
+                        "[ArcPaper] Dynamic ring buffer changed to {} loops",
+                        new_ring_size
+                    ));
+                    let mut state = wp_state.borrow_mut();
+                    state.ring_size = new_ring_size;
+                    save_config(&state);
+
+                    // Refresh active wallpaper playlist immediately without restarting application
+                    if let Some(ref active_name) = state.active_video {
+                        let video_path = saved_wallpapers_dir.join(active_name);
+                        if video_path.is_file() {
+                            if let Err(e) = apply_ring_buffer(&video_path.to_string_lossy(), new_ring_size) {
+                                log_msg(&format!("[ArcPaper] Error refreshing ring buffer: {}", e));
+                            } else {
+                                log_msg(&format!(
+                                    "[ArcPaper] Successfully refreshed active wallpaper ring buffer with {} loops",
+                                    new_ring_size
+                                ));
+                            }
+                            let _ = player::set_speed(state.speed);
+                            let _ = player::set_brightness(state.brightness);
+                            let _ = player::set_fit(&state.fit_mode);
+                            let _ = apply_fps_limit(state.target_fps);
+                            if state.is_manually_paused {
+                                let _ = player::set_pause(true);
+                            }
+                            delayed_trim(500);
+                        }
+                    }
+
+                    let is_paused = state.is_manually_paused;
+                    let active_name = state.active_video.clone();
+                    let ring_size = state.ring_size;
+                    let target_fps = state.target_fps;
+                    drop(state);
+
+                    // Rebuild tray menu to update check mark on selected ring buffer size
+                    let (new_menu, new_controls) = build_tray_menu(
+                        &saved_wallpapers_dir,
+                        is_paused,
+                        active_name.as_deref(),
+                        ring_size,
+                        current_native_fps,
+                        target_fps,
+                    );
+                    tray_icon.set_menu(Some(Box::new(new_menu)));
+                    controls = new_controls;
 
                 } else if let Some(selected_wallpaper) = controls.wallpaper_map.get(&event_id).cloned() {
                     let full_path = saved_wallpapers_dir.join(&selected_wallpaper);
@@ -1065,20 +1366,38 @@ fn main() {
                         full_path
                     ));
 
-                    // Seamless switch via MPV IPC `loadfile <path> replace`
-                    if let Err(e) = player::change_wallpaper(&full_path.to_string_lossy()) {
-                        log_msg(&format!("[ArcPaper] Error changing wallpaper: {}", e));
+                    let ring_size = wp_state.borrow().ring_size;
+                    if let Err(e) = apply_ring_buffer(&full_path.to_string_lossy(), ring_size) {
+                        log_msg(&format!("[ArcPaper] Error applying ring buffer: {}", e));
                     }
-                    delayed_trim(2000);
+                    delayed_trim(500);
+
+                    if let Some(fps) = player::detect_native_fps() {
+                        current_native_fps = fps.round() as u32;
+                        log_msg(&format!(
+                            "[ArcPaper] Detected native video FPS: {:.2} (rounded: {})",
+                            fps, current_native_fps
+                        ));
+                    }
 
                     let mut state = wp_state.borrow_mut();
                     state.active_video = Some(selected_wallpaper.clone());
                     state.is_manually_paused = false;
                     is_auto_paused = false;
+
+                    if let Some(target) = state.target_fps {
+                        if target >= current_native_fps {
+                            state.target_fps = None;
+                        }
+                    }
                     save_config(&state);
+
+                    let _ = apply_fps_limit(state.target_fps);
 
                     let is_paused = state.is_manually_paused;
                     let active_name = state.active_video.clone();
+                    let ring_size = state.ring_size;
+                    let target_fps = state.target_fps;
                     drop(state);
 
                     // Rebuild tray menu to update active wallpaper indicator
@@ -1086,6 +1405,35 @@ fn main() {
                         &saved_wallpapers_dir,
                         is_paused,
                         active_name.as_deref(),
+                        ring_size,
+                        current_native_fps,
+                        target_fps,
+                    );
+                    tray_icon.set_menu(Some(Box::new(new_menu)));
+                    controls = new_controls;
+
+                } else if let Some(&target_fps_opt) = controls.fps_map.get(&event_id) {
+                    let mut state = wp_state.borrow_mut();
+                    state.target_fps = target_fps_opt;
+                    save_config(&state);
+
+                    let _ = apply_fps_limit(target_fps_opt);
+                    delayed_trim(500);
+
+                    let is_paused = state.is_manually_paused;
+                    let active_name = state.active_video.clone();
+                    let ring_size = state.ring_size;
+                    let target_fps = state.target_fps;
+                    drop(state);
+
+                    // Rebuild tray menu to update check mark on selected Target FPS
+                    let (new_menu, new_controls) = build_tray_menu(
+                        &saved_wallpapers_dir,
+                        is_paused,
+                        active_name.as_deref(),
+                        ring_size,
+                        current_native_fps,
+                        target_fps,
                     );
                     tray_icon.set_menu(Some(Box::new(new_menu)));
                     controls = new_controls;
@@ -1118,16 +1466,23 @@ fn main() {
                     let state = wp_state.borrow();
                     let is_paused = state.is_manually_paused;
                     let active_name = state.active_video.clone();
+                    let ring_size = state.ring_size;
+                    let target_fps = state.target_fps;
                     drop(state);
 
                     let (new_menu, new_controls) = build_tray_menu(
                         &saved_wallpapers_dir,
                         is_paused,
                         active_name.as_deref(),
+                        ring_size,
+                        current_native_fps,
+                        target_fps,
                     );
                     tray_icon.set_menu(Some(Box::new(new_menu)));
                     controls = new_controls;
 
+                } else if event_id == controls.uninstall_id {
+                    perform_uninstall();
                 } else if event_id == controls.exit_id {
                     log_msg("[ArcPaper] Exit requested. Shutting down cleanly...");
                     *control_flow = ControlFlow::Exit;
@@ -1176,13 +1531,13 @@ mod tests {
     #[test]
     fn test_github_release_json_deserialization() {
         let sample_json = r#"{
-            "tag_name": "v1.2.0",
-            "html_url": "https://github.com/ArtixForLiving/ArcPaper/releases/tag/v1.2.0",
-            "name": "ArcPaper v1.2.0 Release"
+            "tag_name": "v1.5.0",
+            "html_url": "https://github.com/ArtixForLiving/ArcPaper/releases/tag/v1.5.0",
+            "name": "ArcPaper v1.5.0 Release"
         }"#;
         let release: GitHubRelease = serde_json::from_str(sample_json).expect("Failed to deserialize sample GitHub release");
-        assert_eq!(release.tag_name, "v1.2.0");
-        assert_eq!(release.html_url, "https://github.com/ArtixForLiving/ArcPaper/releases/tag/v1.2.0");
+        assert_eq!(release.tag_name, "v1.5.0");
+        assert_eq!(release.html_url, "https://github.com/ArtixForLiving/ArcPaper/releases/tag/v1.5.0");
     }
 
     #[test]
@@ -1219,5 +1574,111 @@ mod tests {
         if initial {
             let _ = enable_autostart();
         }
+    }
+
+    #[test]
+    fn test_app_config_ring_size_serialization_and_defaults() {
+        let default_cfg = AppConfig::default();
+        assert_eq!(default_cfg.ring_size, 10);
+
+        let json = serde_json::to_string(&default_cfg).unwrap();
+        assert!(json.contains("\"ring_size\": 10") || json.contains("\"ring_size\":10"));
+
+        let deserialized: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.ring_size, 10);
+
+        // Test fallback for legacy config without ring_size
+        let legacy_json = r#"{
+            "active_video": "test.mp4",
+            "speed": 1.0,
+            "brightness": 100,
+            "fit_mode": "cover",
+            "is_manually_paused": false
+        }"#;
+        let from_legacy: AppConfig = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(from_legacy.ring_size, 10);
+
+        // Test custom supported ring sizes (5, 20)
+        let custom_5_json = r#"{"ring_size": 5, "speed": 1.0, "brightness": 100, "fit_mode": "cover", "is_manually_paused": false}"#;
+        let from_5: AppConfig = serde_json::from_str(custom_5_json).unwrap();
+        assert_eq!(from_5.ring_size, 5);
+
+        let custom_20_json = r#"{"ring_size": 20, "speed": 1.0, "brightness": 100, "fit_mode": "cover", "is_manually_paused": false}"#;
+        let from_20: AppConfig = serde_json::from_str(custom_20_json).unwrap();
+        assert_eq!(from_20.ring_size, 20);
+    }
+
+    #[test]
+    fn test_app_config_target_fps_serialization_and_defaults() {
+        let default_cfg = AppConfig::default();
+        assert_eq!(default_cfg.target_fps, None);
+
+        let mut cfg = AppConfig::default();
+        cfg.target_fps = Some(30);
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("\"target_fps\": 30") || json.contains("\"target_fps\":30"));
+
+        let deserialized: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.target_fps, Some(30));
+
+        // Test fallback for legacy config without target_fps
+        let legacy_json = r#"{
+            "active_video": "test.mp4",
+            "speed": 1.0,
+            "brightness": 100,
+            "fit_mode": "cover",
+            "is_manually_paused": false,
+            "ring_size": 10
+        }"#;
+        let from_legacy: AppConfig = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(from_legacy.target_fps, None);
+
+        // Test explicit null
+        let null_json = r#"{
+            "active_video": "test.mp4",
+            "speed": 1.0,
+            "brightness": 100,
+            "fit_mode": "cover",
+            "is_manually_paused": false,
+            "ring_size": 10,
+            "target_fps": null
+        }"#;
+        let from_null: AppConfig = serde_json::from_str(null_json).unwrap();
+        assert_eq!(from_null.target_fps, None);
+    }
+
+    #[test]
+    fn test_get_fps_options_logic() {
+        // High frame rate video (> 45 FPS, e.g. 60 FPS)
+        let opts_60 = get_fps_options(60);
+        let vals_60: Vec<u32> = opts_60.iter().map(|(val, _)| *val).collect();
+        assert_eq!(vals_60, vec![45, 30, 20, 15]);
+
+        // Standard 30 FPS or 24 FPS video (<= 35 FPS)
+        let opts_30 = get_fps_options(30);
+        let vals_30: Vec<u32> = opts_30.iter().map(|(val, _)| *val).collect();
+        assert_eq!(vals_30, vec![20, 15]);
+
+        let opts_24 = get_fps_options(24);
+        let vals_24: Vec<u32> = opts_24.iter().map(|(val, _)| *val).collect();
+        assert_eq!(vals_24, vec![20, 15]);
+
+        // Intermediate framerate (e.g. 40 FPS)
+        let opts_40 = get_fps_options(40);
+        let vals_40: Vec<u32> = opts_40.iter().map(|(val, _)| *val).collect();
+        assert_eq!(vals_40, vec![30, 20, 15]);
+    }
+
+    #[test]
+    fn test_uninstall_cmd_formatting() {
+        let exe = PathBuf::from(r"C:\App\arc_paper.exe");
+        let cfg = PathBuf::from(r"C:\App\config.json");
+        let cmd = format!(
+            "ping 127.0.0.1 -n 3 > nul & del /F /Q \"{}\" \"{}\"",
+            exe.display(),
+            cfg.display()
+        );
+        assert!(cmd.starts_with("ping 127.0.0.1 -n 3 > nul"));
+        assert!(cmd.contains(r#"del /F /Q "C:\App\arc_paper.exe" "C:\App\config.json""#));
     }
 }
