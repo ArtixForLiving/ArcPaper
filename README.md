@@ -22,7 +22,7 @@
 ## ✨ Features
 
 - **🚀 Ultra-Low Resource Consumption**
-  - Consumes **< 10 MB RAM** in idle/paused state and minimal memory during 4K/60FPS playback.
+  - Consumes **< 10 MB RAM** in paused state and minimal memory during 4K/60FPS playback.
   - Typical **0–1% CPU usage** via direct GPU hardware video decoding (`d3d11va`).
 
 - **🎮 Smart Auto-Pause for Games & Fullscreen Apps**
