@@ -30,7 +30,7 @@ ArcPaper renders video frames directly into GPU VRAM using high-performance flip
 | **Active 1080p 60 FPS RAM** | **~30–35 MB** | 180–350 MB |
 | **CPU Usage (Active)** | **~0.3% – 0.5%** | 3.0% – 12.0% |
 | **Auto-Pause CPU Usage** | **0.0%** (Full thread hibernation) | 0.5% – 2.0% |
-| **Binary Distribution** | **~1.7 MB (Single Standalone `.exe`)** | 50–200 MB (Requires DLLs / runtimes) |
+| **Binary Distribution** | **~1.7 MB standalone executable (Portable ZIP bundle)** | 50–200 MB (Requires DLLs / runtimes) |
 | **External Dependencies** | **None (Zero third-party DLLs)** | Requires `libmpv`, `ffmpeg`, or Chromium |
 
 ---
@@ -101,16 +101,17 @@ flowchart LR
 
 ## 📥 Installation & Usage
 
-### Standalone Executable (Recommended)
+### Portable Distribution Archive (Recommended)
 
-1. Download the latest [`arc_paper.exe`](https://github.com/ArtixForLiving/ArcPaper/releases/latest) release.
-2. Place `arc_paper.exe` in any directory of your choice (e.g. `C:\Tools\ArcPaper` or `D:\ArcPaper`).
-3. Double-click `arc_paper.exe` to run.
-4. Right-click the **ArcPaper** icon in your System Tray:
+1. Download the latest release package: [`ArcPaper-v1.5.5-win64.zip`](https://github.com/ArtixForLiving/ArcPaper/releases/latest).
+2. Extract the ZIP archive to your preferred directory (e.g., `C:\Tools\ArcPaper` or `D:\ArcPaper`).
+3. Run `arc_paper.exe`.
+4. Right-click the **ArcPaper** icon in your Windows System Tray:
    - Click **"Upload New Wallpaper..."** to select any `.mp4` video.
+   - Or choose from the preloaded sample wallpapers in the `SavedWallpapers` folder.
    - Check **"Start with Windows"** if you want ArcPaper to launch automatically on login.
 
-> **Tip:** You can also drop your `.mp4` video files directly into the `SavedWallpapers` folder created next to `arc_paper.exe`!
+> **Tip:** You can drop any additional `.mp4` video files directly into the `SavedWallpapers` folder next to `arc_paper.exe` to access them instantly from the tray menu!
 
 ---
 
