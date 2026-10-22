@@ -4,5 +4,5 @@
   "brightness": 100,
   "fit_mode": "cover",
   "is_manually_paused": false,
-  "ring_size": 10
+  "target_fps": null
 }

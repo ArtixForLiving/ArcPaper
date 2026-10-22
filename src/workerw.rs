@@ -9,20 +9,25 @@ use windows::core::{PCWSTR, w};
 pub fn attach_to_default_desktop() -> bool {
     type FnOpenDesktopW = unsafe extern "system" fn(*const u16, u32, i32, u32) -> isize;
     type FnSetThreadDesktop = unsafe extern "system" fn(isize) -> i32;
+    type FnCloseDesktop = unsafe extern "system" fn(isize) -> i32;
 
     use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     unsafe {
         if let Ok(user32) = LoadLibraryW(w!("user32.dll")) {
             let p_open = GetProcAddress(user32, windows::core::s!("OpenDesktopW"));
             let p_set = GetProcAddress(user32, windows::core::s!("SetThreadDesktop"));
-            if let (Some(open_fn), Some(set_fn)) = (p_open, p_set) {
+            let p_close = GetProcAddress(user32, windows::core::s!("CloseDesktop"));
+            if let (Some(open_fn), Some(set_fn), Some(close_fn)) = (p_open, p_set, p_close) {
                 let open_desktop: FnOpenDesktopW = std::mem::transmute(open_fn);
                 let set_thread_desktop: FnSetThreadDesktop = std::mem::transmute(set_fn);
+                let close_desktop: FnCloseDesktop = std::mem::transmute(close_fn);
                 let name: Vec<u16> = "Default\0".encode_utf16().collect();
                 // 0x01FF covers standard DESKTOP rights
                 let hdesk = open_desktop(name.as_ptr(), 0, 0, 0x01FF);
                 if hdesk != 0 {
-                    return set_thread_desktop(hdesk) != 0;
+                    let success = set_thread_desktop(hdesk) != 0;
+                    let _ = close_desktop(hdesk);
+                    return success;
                 }
             }
         }
@@ -37,44 +42,6 @@ pub fn get_progman_hwnd() -> HWND {
             Ok(h) if !h.0.is_null() => h,
             _ => HWND::default(),
         }
-    }
-}
-
-/// Finds the `SHELLDLL_DefView` window handle (desktop icon view),
-/// which may be a child of `Progman` or a child of a top-level `WorkerW`.
-#[allow(dead_code)]
-pub fn get_shelldll_defview_hwnd(progman: HWND) -> HWND {
-    unsafe {
-        // 1. Search inside Progman (typical in Windows 11 24H2 / 25H2)
-        if !progman.0.is_null() {
-            if let Ok(h) =
-                FindWindowExW(Some(progman), None, w!("SHELLDLL_DefView"), PCWSTR::null())
-            {
-                if !h.0.is_null() {
-                    return h;
-                }
-            }
-        }
-
-        // 2. Fallback search: iterate top-level WorkerW windows
-        let mut top_worker =
-            FindWindowExW(None, None, w!("WorkerW"), PCWSTR::null()).unwrap_or(HWND::default());
-        while !top_worker.0.is_null() {
-            if let Ok(child_shell) = FindWindowExW(
-                Some(top_worker),
-                None,
-                w!("SHELLDLL_DefView"),
-                PCWSTR::null(),
-            ) {
-                if !child_shell.0.is_null() {
-                    return child_shell;
-                }
-            }
-            top_worker = FindWindowExW(None, Some(top_worker), w!("WorkerW"), PCWSTR::null())
-                .unwrap_or(HWND::default());
-        }
-
-        HWND::default()
     }
 }
 
@@ -111,10 +78,9 @@ fn get_workerw_from_progman(progman: HWND) -> HWND {
         // Case A: Windows 11 (24H2 / 25H2) where WorkerW is a child inside Progman:
         if let Ok(worker_in_progman) =
             FindWindowExW(Some(progman), None, w!("WorkerW"), PCWSTR::null())
+            && !worker_in_progman.0.is_null()
         {
-            if !worker_in_progman.0.is_null() {
-                return worker_in_progman;
-            }
+            return worker_in_progman;
         }
 
         // Case B: Windows 10 / earlier Windows 11 where WorkerW is a sibling of the WorkerW hosting SHELLDLL_DefView:
@@ -183,32 +149,16 @@ pub fn attach_to_desktop() -> HWND {
         if !progman.0.is_null() {
             let workerw = get_workerw_from_progman(progman);
             if !workerw.0.is_null() {
-                if attempt > 1 {
-                    println!(
-                        "[ArcPaper] Desktop WorkerW successfully attached on attempt {}",
-                        attempt
-                    );
-                }
                 return workerw;
             }
         }
 
         let fallback_workerw = get_desktop_workerw_hwnd_internal();
         if !fallback_workerw.0.is_null() {
-            if attempt > 1 {
-                println!(
-                    "[ArcPaper] Desktop WorkerW successfully attached on attempt {}",
-                    attempt
-                );
-            }
             return fallback_workerw;
         }
 
         if attempt < 10 {
-            println!(
-                "[ArcPaper] Desktop shell (Progman/WorkerW) not ready (attempt {}/10). Retrying in 500ms...",
-                attempt
-            );
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
     }
@@ -222,12 +172,6 @@ pub fn AttachToDesktop() -> HWND {
     attach_to_desktop()
 }
 
-/// Retrieves the desktop WorkerW window handle using retry logic.
-#[allow(dead_code)]
-pub fn get_desktop_workerw_hwnd() -> HWND {
-    attach_to_desktop()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,7 +180,7 @@ mod tests {
     fn test_workerw_hooking_function() {
         let progman = get_progman_hwnd();
         println!("Progman HWND: {:?}", progman);
-        let workerw = get_desktop_workerw_hwnd();
+        let workerw = attach_to_desktop();
         println!("WorkerW HWND: {:?}", workerw);
     }
 }
