@@ -13,11 +13,12 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 
+use crate::app::log::{LogLevel, log_throttled, log_with_level};
 pub use autopause::{AutoPause, FramePacer};
 pub use decoder::{DecodedFrame, Decoder};
 pub use demux::{Demuxer, VideoCodec};
 pub use loop_ctrl::LoopController;
-pub use presenter::Presenter;
+pub use presenter::{Presenter, is_device_lost_error, is_device_lost_hresult};
 pub use renderer::Renderer;
 
 /// Video display scaling modes.
@@ -50,6 +51,106 @@ struct SharedState {
     resize_req: Option<(u32, u32)>,
     native_fps: Option<f64>,
     is_running: bool,
+}
+
+/// Tracks consecutive GPU device-lost recovery attempts and backoff intervals.
+#[derive(Debug, Default)]
+pub struct RecoveryTracker {
+    consecutive_attempts: u32,
+    exhausted: bool,
+}
+
+impl RecoveryTracker {
+    pub const MAX_ATTEMPTS: u32 = 3;
+
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the backoff sleep duration for the next recovery attempt,
+    /// or `None` once `MAX_ATTEMPTS` consecutive recoveries have failed.
+    pub fn next_backoff(&mut self) -> Option<Duration> {
+        if self.exhausted || self.consecutive_attempts >= Self::MAX_ATTEMPTS {
+            self.exhausted = true;
+            return None;
+        }
+        self.consecutive_attempts += 1;
+        let ms = match self.consecutive_attempts {
+            1 => 150,
+            2 => 400,
+            _ => 800,
+        };
+        Some(Duration::from_millis(ms))
+    }
+
+    /// Resets the failure counter after a recovered frame presents cleanly.
+    pub fn reset(&mut self) {
+        self.consecutive_attempts = 0;
+        self.exhausted = false;
+    }
+
+    pub fn is_exhausted(&self) -> bool {
+        self.exhausted
+    }
+
+    pub fn attempts(&self) -> u32 {
+        self.consecutive_attempts
+    }
+}
+
+/// Executes bounded recovery retries using `RecoveryTracker`, sleeping between attempts.
+pub fn run_recovery_with<T, E, S, R>(
+    tracker: &mut RecoveryTracker,
+    mut sleep_fn: S,
+    mut rebuild_fn: R,
+) -> Result<T, Option<E>>
+where
+    S: FnMut(Duration),
+    R: FnMut() -> Result<T, E>,
+{
+    let mut last_err = None;
+    while let Some(backoff) = tracker.next_backoff() {
+        sleep_fn(backoff);
+        match rebuild_fn() {
+            Ok(val) => return Ok(val),
+            Err(err) => last_err = Some(err),
+        }
+    }
+    Err(last_err)
+}
+
+fn snap_to_nearest_keyframe(demux: &Demuxer, lctrl: &mut LoopController) {
+    let frames = demux.frames();
+    if frames.is_empty() {
+        return;
+    }
+    let idx = lctrl.current_frame_idx.min(frames.len() - 1);
+    let key_idx = frames[..=idx]
+        .iter()
+        .rposition(|f| f.is_keyframe)
+        .unwrap_or(0);
+    lctrl.current_frame_idx = key_idx;
+}
+
+fn build_d3d_pipeline(
+    hwnd: HWND,
+    width: u32,
+    height: u32,
+    demuxer: Option<&Demuxer>,
+    loop_ctrl: Option<&mut LoopController>,
+) -> windows::core::Result<(Presenter, Renderer, Option<Decoder>)> {
+    let pres = Presenter::new(hwnd, width, height)?;
+    let rend = Renderer::new(pres.device())?;
+    let dec = if let Some(demux) = demuxer {
+        if let Some(lctrl) = loop_ctrl {
+            snap_to_nearest_keyframe(demux, lctrl);
+        }
+        let codec = demux.codec().unwrap_or(VideoCodec::H264);
+        Some(Decoder::new(pres.device(), codec, demux.width(), demux.height())?)
+    } else {
+        None
+    };
+    Ok((pres, rend, dec))
 }
 
 /// Main ArcPlayer coordinator orchestrating playback via a dedicated background rendering thread.
@@ -108,21 +209,41 @@ impl ArcPlayer {
         }
 
         let (lock, cvar) = &*shared;
+        let mut cur_width = width.max(1);
+        let mut cur_height = height.max(1);
 
         // 1. Initialize Direct3D 11 Presenter, Renderer, and FramePacer
-        let mut presenter = match Presenter::new(hwnd, width, height) {
-            Ok(p) => p,
-            Err(_) => return,
+        let mut presenter = match Presenter::new(hwnd, cur_width, cur_height) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                log_with_level(
+                    LogLevel::Error,
+                    &format!("[ArcPlayer] Initial Presenter::new failed ({:?}): {}", e.code(), e),
+                );
+                return;
+            }
         };
 
-        let renderer = match Renderer::new(presenter.device()) {
-            Ok(r) => r,
-            Err(_) => return,
+        let mut renderer = match Renderer::new(presenter.as_ref().unwrap().device()) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                log_with_level(
+                    LogLevel::Error,
+                    &format!("[ArcPlayer] Initial Renderer::new failed ({:?}): {}", e.code(), e),
+                );
+                return;
+            }
         };
 
         let pacer = match FramePacer::new() {
             Ok(p) => p,
-            Err(_) => return,
+            Err(e) => {
+                log_with_level(
+                    LogLevel::Error,
+                    &format!("[ArcPlayer] FramePacer::new failed ({:?}): {}", e.code(), e),
+                );
+                return;
+            }
         };
 
         let mut loaded_path: Option<PathBuf> = None;
@@ -130,6 +251,7 @@ impl ArcPlayer {
         let mut loop_ctrl: Option<LoopController> = None;
         let mut decoder: Option<Decoder> = None;
         let mut was_paused = false;
+        let mut recovery = RecoveryTracker::new();
 
         let mut first_video_load_time: Option<Instant> = None;
         let mut initial_trim_done = false;
@@ -181,13 +303,31 @@ impl ArcPlayer {
                 }
             }
 
+            let mut needs_device_recovery = false;
+
             // Handle window resize requests
             if let Some((new_w, new_h)) = resize_req {
-                let _ = presenter.resize(new_w, new_h);
+                if new_w > 0 && new_h > 0 {
+                    cur_width = new_w;
+                    cur_height = new_h;
+                }
+                if let Some(ref mut pres) = presenter
+                    && let Err(e) = pres.resize(new_w, new_h)
+                {
+                    log_throttled(
+                        "resize_err",
+                        Duration::from_secs(5),
+                        LogLevel::Error,
+                        &format!("[ArcPlayer] Presenter::resize failed ({:?}): {}", e.code(), e),
+                    );
+                    if is_device_lost_error(&e) || is_device_lost_hresult(pres.device_removed_reason()) {
+                        needs_device_recovery = true;
+                    }
+                }
             }
 
             // Handle loading a new video file
-            if video_to_load != loaded_path {
+            if !needs_device_recovery && video_to_load != loaded_path {
                 loaded_path = video_to_load.clone();
                 if let Some(ref path) = video_to_load {
                     let mut d = Demuxer::new();
@@ -205,7 +345,27 @@ impl ArcPlayer {
                                 60.0
                             };
 
-                            let dec = Decoder::new(presenter.device(), codec, video_w, video_h).ok();
+                            let dec = if let Some(ref pres) = presenter {
+                                match Decoder::new(pres.device(), codec, video_w, video_h) {
+                                    Ok(dec) => Some(dec),
+                                    Err(e) => {
+                                        log_with_level(
+                                            LogLevel::Error,
+                                            &format!(
+                                                "[ArcPlayer] Decoder::new failed ({:?}): {}",
+                                                e.code(),
+                                                e
+                                            ),
+                                        );
+                                        if is_device_lost_error(&e) {
+                                            needs_device_recovery = true;
+                                        }
+                                        None
+                                    }
+                                }
+                            } else {
+                                None
+                            };
 
                             let mut state = lock.lock().unwrap();
                             state.native_fps = Some(native_fps);
@@ -218,7 +378,11 @@ impl ArcPlayer {
                                 first_video_load_time = Some(Instant::now());
                             }
                         }
-                        Err(_) => {
+                        Err(e) => {
+                            log_with_level(
+                                LogLevel::Error,
+                                &format!("[ArcPlayer] Demuxer::open({:?}) failed: {}", path, e),
+                            );
                             demuxer = None;
                             decoder = None;
                             loop_ctrl = None;
@@ -240,9 +404,11 @@ impl ArcPlayer {
             }
 
             // Handle paused / hibernation mode
-            if is_paused {
+            if !needs_device_recovery && is_paused {
                 if !was_paused {
-                    AutoPause::enter_hibernation(&presenter);
+                    if let Some(ref pres) = presenter {
+                        AutoPause::enter_hibernation(pres);
+                    }
                     was_paused = true;
                 }
 
@@ -275,12 +441,18 @@ impl ArcPlayer {
             }
 
             // Perform single playback tick
-            if let (Some(demux), Some(lctrl), Some(dec)) =
-                (&mut demuxer, &mut loop_ctrl, &mut decoder)
+            if !needs_device_recovery
+                && !recovery.is_exhausted()
+                && let (Some(demux), Some(lctrl), Some(dec), Some(pres), Some(rend)) = (
+                    &mut demuxer,
+                    &mut loop_ctrl,
+                    &mut decoder,
+                    &presenter,
+                    &renderer,
+                )
             {
                 match demux.read_next_annexb_packet(lctrl) {
                     Ok((packet, pts_100ns, duration_100ns, _)) => {
-                        // Calculate target frame pacing interval
                         let base_interval_100ns = if let Some(target_fps) = target_fps {
                             let target_interval = (10_000_000 / target_fps.max(1)) as i64;
                             duration_100ns.max(target_interval)
@@ -291,35 +463,159 @@ impl ArcPlayer {
                         let effective_sleep_100ns =
                             (base_interval_100ns as f64 / (speed as f64).max(0.1)) as i64;
 
-                        // High-precision sleep using waitable timer
                         pacer.sleep_100ns(effective_sleep_100ns);
 
-                        // Feed bitstream and present decoded frame
-                        if let Ok(Some(frame)) = dec.feed_and_decode(packet, pts_100ns, duration_100ns) {
-                            let _ = renderer.render_nv12_frame(
-                                &presenter,
-                                &frame.texture,
-                                frame.subresource_index,
-                                demux.width(),
-                                demux.height(),
-                                brightness,
-                                fit_mode,
-                            );
-                            let _ = presenter.present(true);
+                        match dec.feed_and_decode(packet, pts_100ns, duration_100ns) {
+                            Ok(Some(frame)) => {
+                                if let Err(e) = rend.render_nv12_frame(
+                                    pres,
+                                    &frame.texture,
+                                    frame.subresource_index,
+                                    demux.width(),
+                                    demux.height(),
+                                    brightness,
+                                    fit_mode,
+                                ) {
+                                    log_throttled(
+                                        "render_err",
+                                        Duration::from_secs(5),
+                                        LogLevel::Error,
+                                        &format!(
+                                            "[ArcPlayer] render_nv12_frame error ({:?}): {}",
+                                            e.code(),
+                                            e
+                                        ),
+                                    );
+                                    if is_device_lost_error(&e)
+                                        || is_device_lost_hresult(pres.device_removed_reason())
+                                    {
+                                        needs_device_recovery = true;
+                                    }
+                                } else if let Err(e) = pres.present(true) {
+                                    log_throttled(
+                                        "present_err",
+                                        Duration::from_secs(5),
+                                        LogLevel::Error,
+                                        &format!(
+                                            "[ArcPlayer] SwapChain Present error ({:?}): {}",
+                                            e.code(),
+                                            e
+                                        ),
+                                    );
+                                    if is_device_lost_error(&e)
+                                        || is_device_lost_hresult(pres.device_removed_reason())
+                                    {
+                                        needs_device_recovery = true;
+                                    }
+                                } else if recovery.attempts() > 0 {
+                                    recovery.reset();
+                                    log_with_level(
+                                        LogLevel::Info,
+                                        "[ArcPlayer] GPU pipeline resumed cleanly after device recovery.",
+                                    );
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                log_throttled(
+                                    "decode_err",
+                                    Duration::from_secs(5),
+                                    LogLevel::Error,
+                                    &format!("[ArcPlayer] feed_and_decode error ({:?}): {}", e.code(), e),
+                                );
+                                if is_device_lost_error(&e)
+                                    || is_device_lost_hresult(pres.device_removed_reason())
+                                {
+                                    needs_device_recovery = true;
+                                }
+                            }
                         }
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        log_throttled(
+                            "demux_read_err",
+                            Duration::from_secs(5),
+                            LogLevel::Warn,
+                            &format!("[ArcPlayer] Packet read error: {e}"),
+                        );
                         pacer.sleep_duration(Duration::from_millis(16));
                     }
                 }
-            } else {
-                // No active video stream: wait idle
-                pacer.sleep_duration(Duration::from_millis(33));
+            } else if !needs_device_recovery {
+                pacer.sleep_duration(Duration::from_millis(if recovery.is_exhausted() {
+                    250
+                } else {
+                    33
+                }));
+            }
+
+            if needs_device_recovery {
+                let reason = presenter
+                    .as_ref()
+                    .map(|p| p.device_removed_reason())
+                    .unwrap_or(windows::Win32::Foundation::E_FAIL);
+                log_with_level(
+                    LogLevel::Error,
+                    &format!(
+                        "[ArcPlayer] DXGI device lost detected (reason: {:?}). Releasing D3D11/MF resources for recovery...",
+                        reason
+                    ),
+                );
+
+                // Strictly drop COM dependents before releasing Presenter/Device/ChildHWND
+                decoder = None;
+                renderer = None;
+                presenter = None;
+
+                match run_recovery_with(
+                    &mut recovery,
+                    |d| pacer.sleep_duration(d),
+                    || {
+                        build_d3d_pipeline(
+                            hwnd,
+                            cur_width,
+                            cur_height,
+                            demuxer.as_ref(),
+                            loop_ctrl.as_mut(),
+                        )
+                    },
+                ) {
+                    Ok((new_pres, new_rend, new_dec)) => {
+                        presenter = Some(new_pres);
+                        renderer = Some(new_rend);
+                        decoder = new_dec;
+                        log_with_level(
+                            LogLevel::Info,
+                            &format!(
+                                "[ArcPlayer] D3D11 pipeline recreated on attempt {}/{}.",
+                                recovery.attempts(),
+                                RecoveryTracker::MAX_ATTEMPTS
+                            ),
+                        );
+                    }
+                    Err(last_err) => {
+                        log_with_level(
+                            LogLevel::Error,
+                            &format!(
+                                "[ArcPlayer] D3D11 recovery exhausted after {} attempts (last error: {:?}).",
+                                RecoveryTracker::MAX_ATTEMPTS,
+                                last_err.map(|e| e.code())
+                            ),
+                        );
+                    }
+                }
             }
         }
 
         // Cleanup upon thread exit
-        AutoPause::enter_hibernation(&presenter);
+        decoder = None;
+        renderer = None;
+        if let Some(ref pres) = presenter {
+            AutoPause::enter_hibernation(pres);
+        }
+        drop(decoder);
+        drop(renderer);
+        drop(presenter);
         unsafe {
             use windows::Win32::Media::MediaFoundation::MFShutdown;
             use windows::Win32::System::Com::CoUninitialize;
@@ -474,5 +770,74 @@ mod tests {
         assert_eq!(s.speed, 1.5);
         assert!((s.brightness - 0.8).abs() < 1e-4);
         assert_eq!(s.target_fps, Some(30));
+    }
+
+    #[test]
+    fn test_device_recovery_tracker_bounds_and_reset() {
+        let mut tracker = RecoveryTracker::new();
+        assert!(!tracker.is_exhausted());
+
+        assert_eq!(tracker.next_backoff(), Some(Duration::from_millis(150)));
+        assert_eq!(tracker.attempts(), 1);
+        assert_eq!(tracker.next_backoff(), Some(Duration::from_millis(400)));
+        assert_eq!(tracker.attempts(), 2);
+        assert_eq!(tracker.next_backoff(), Some(Duration::from_millis(800)));
+        assert_eq!(tracker.attempts(), 3);
+
+        // 4th consecutive attempt must stop and mark exhausted
+        assert_eq!(tracker.next_backoff(), None);
+        assert!(tracker.is_exhausted());
+
+        // Successful frame present resets consecutive attempt counter
+        tracker.reset();
+        assert!(!tracker.is_exhausted());
+        assert_eq!(tracker.attempts(), 0);
+        assert_eq!(tracker.next_backoff(), Some(Duration::from_millis(150)));
+    }
+
+    #[test]
+    fn test_run_recovery_with_bounded_retries_and_exhaustion() {
+        let mut tracker = RecoveryTracker::new();
+        let mut slept = Vec::new();
+        let mut calls = 0u32;
+
+        let ok_res: Result<&str, Option<&str>> = run_recovery_with(
+            &mut tracker,
+            |d| slept.push(d),
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Err("device still resetting")
+                } else {
+                    Ok("recovered")
+                }
+            },
+        );
+        assert_eq!(ok_res, Ok("recovered"));
+        assert_eq!(calls, 3);
+        assert_eq!(
+            slept,
+            vec![
+                Duration::from_millis(150),
+                Duration::from_millis(400),
+                Duration::from_millis(800),
+            ]
+        );
+        assert!(!tracker.is_exhausted());
+
+        // Exhaustion after 3 consecutive failures
+        let mut tracker2 = RecoveryTracker::new();
+        let mut calls2 = 0u32;
+        let fail_res: Result<(), Option<&str>> = run_recovery_with(
+            &mut tracker2,
+            |_| {},
+            || {
+                calls2 += 1;
+                Err("permanent gpu loss")
+            },
+        );
+        assert_eq!(fail_res, Err(Some("permanent gpu loss")));
+        assert_eq!(calls2, 3);
+        assert!(tracker2.is_exhausted());
     }
 }
