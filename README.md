@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ArtixForLiving/ArcPaper/releases"><img src="https://img.shields.io/github/v/release/ArtixForLiving/ArcPaper?color=00f2fe&style=for-the-badge" alt="Release v1.5.5" /></a>
+  <a href="https://github.com/ArtixForLiving/ArcPaper/releases"><img src="https://img.shields.io/github/v/release/ArtixForLiving/ArcPaper?color=00f2fe&style=for-the-badge" alt="Release v1.6.0" /></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Language-Rust%202024-orange.svg?style=for-the-badge&logo=rust" alt="Rust 2024" /></a>
   <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010-0078d4.svg?style=for-the-badge&logo=windows" alt="Windows" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-10b981.svg?style=for-the-badge" alt="License MIT" /></a>
@@ -24,7 +24,7 @@ ArcPaper renders video frames directly into GPU VRAM using high-performance flip
 
 ## 📊 Performance Benchmarks
 
-| Metric | ArcPaper v1.5.5 | Traditional Wallpaper Engines |
+| Metric | ArcPaper v1.6.0 | Traditional Wallpaper Engines |
 |---|---|---|
 | **Idle / Auto-Pause RAM** | **~4–5 MB** | 80–150 MB |
 | **Active 1080p 60 FPS RAM** | **~30–35 MB** | 180–350 MB |
@@ -103,7 +103,7 @@ flowchart LR
 
 ### Portable Distribution Archive (Recommended)
 
-1. Download the latest release package: [`ArcPaper-v1.5.5-win64.zip`](https://github.com/ArtixForLiving/ArcPaper/releases/latest).
+1. Download the latest release package: [`ArcPaper-v1.6.0-win64.zip`](https://github.com/ArtixForLiving/ArcPaper/releases/latest).
 2. Extract the ZIP archive to your preferred directory (e.g., `C:\Tools\ArcPaper` or `D:\ArcPaper`).
 3. Run `arc_paper.exe`.
 4. Right-click the **ArcPaper** icon in your Windows System Tray:
@@ -131,7 +131,7 @@ cd ArcPaper
 # Compile the optimized release binary
 cargo build --release
 
-# Run the test suite (16 tests verifying demuxer, loop controller, decoder, shaders)
+# Run the test suite (34 tests verifying demuxer, loop controller, decoder, shaders, config, logging, recovery)
 cargo test
 ```
 
