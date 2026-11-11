@@ -4,6 +4,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, w};
 
+use crate::display::DisplayRect;
+
 /// Attempts to attach the current thread to the interactive "Default" desktop
 /// if the process is running in a secondary window station or sandbox environment.
 pub fn attach_to_default_desktop() -> bool {
@@ -219,9 +221,141 @@ pub fn attach_and_configure_desktop_surface(screen_w: i32, screen_h: i32) -> HWN
     }
 }
 
+/// Pure helper converting virtual screen monitor coordinates into client coordinates relative to an origin.
+pub fn virtual_rect_to_client_coords(
+    rect: DisplayRect,
+    origin_x: i32,
+    origin_y: i32,
+) -> (i32, i32, i32, i32) {
+    (
+        rect.left - origin_x,
+        rect.top - origin_y,
+        rect.width(),
+        rect.height(),
+    )
+}
+
+/// Attaches to the desktop `WorkerW` (or `Progman` fallback), configures pass-through styles without
+/// shrinking a multi-monitor `WorkerW`, and returns the desktop parent HWND.
+pub fn attach_virtual_desktop_surface() -> HWND {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GWL_STYLE, GetParent, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
+        SM_CXSCREEN, SM_CXVIRTUALSCREEN, SM_CYSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW,
+        SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_CLIPCHILDREN, WS_EX_NOACTIVATE,
+        WS_EX_TRANSPARENT,
+    };
+
+    let workerw_hwnd = attach_to_desktop();
+    let progman_current = get_progman_hwnd();
+
+    let target_hwnd = if !workerw_hwnd.0.is_null() {
+        workerw_hwnd
+    } else if !progman_current.0.is_null() {
+        progman_current
+    } else {
+        return HWND::default();
+    };
+
+    unsafe {
+        let p_style = GetWindowLongPtrW(target_hwnd, GWL_STYLE) as u32;
+        let _ = SetWindowLongPtrW(
+            target_hwnd,
+            GWL_STYLE,
+            (p_style | WS_CLIPCHILDREN.0) as isize,
+        );
+        let p_ex_style = GetWindowLongPtrW(target_hwnd, GWL_EXSTYLE) as u32;
+        let _ = SetWindowLongPtrW(
+            target_hwnd,
+            GWL_EXSTYLE,
+            (p_ex_style | WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0) as isize,
+        );
+
+        let mut virt_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let mut virt_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        let virt_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let virt_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+
+        if virt_w <= 0 || virt_h <= 0 {
+            virt_w = GetSystemMetrics(SM_CXSCREEN);
+            virt_h = GetSystemMetrics(SM_CYSCREEN);
+        }
+
+        let mut current_rect = windows::Win32::Foundation::RECT::default();
+        let _ = GetWindowRect(target_hwnd, &mut current_rect);
+        let curr_w = current_rect.right - current_rect.left;
+        let curr_h = current_rect.bottom - current_rect.top;
+
+        if curr_w < virt_w || curr_h < virt_h {
+            let is_child_of_progman =
+                !progman_current.0.is_null() && GetParent(target_hwnd) == Ok(progman_current);
+
+            if is_child_of_progman {
+                let _ = SetWindowPos(
+                    target_hwnd,
+                    None,
+                    0,
+                    0,
+                    virt_w,
+                    virt_h,
+                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
+            } else {
+                let _ = SetWindowPos(
+                    target_hwnd,
+                    None,
+                    virt_x,
+                    virt_y,
+                    virt_w,
+                    virt_h,
+                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
+            }
+        } else {
+            let _ = ShowWindow(target_hwnd, SW_SHOW);
+        }
+    }
+
+    target_hwnd
+}
+
+/// Maps a monitor's virtual screen `DisplayRect` to `WorkerW` client `(x, y, width, height)` using
+/// `MapWindowPoints`, falling back to `virtual_rect_to_client_coords` with `SM_XVIRTUALSCREEN`/`SM_YVIRTUALSCREEN`.
+pub fn map_monitor_rect_to_workerw(workerw: HWND, rect: DisplayRect) -> (i32, i32, i32, i32) {
+    if !workerw.0.is_null() {
+        let mut pt = windows::Win32::Foundation::POINT {
+            x: rect.left,
+            y: rect.top,
+        };
+        unsafe {
+            use windows::Win32::Foundation::{GetLastError, SetLastError, WIN32_ERROR};
+            use windows::Win32::Graphics::Gdi::MapWindowPoints;
+
+            SetLastError(WIN32_ERROR(0));
+            let mapped = MapWindowPoints(None, Some(workerw), std::slice::from_mut(&mut pt));
+            if mapped != 0 || GetLastError().0 == 0 {
+                return (pt.x, pt.y, rect.width(), rect.height());
+            }
+        }
+    }
+
+    let origin_x = unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+            windows::Win32::UI::WindowsAndMessaging::SM_XVIRTUALSCREEN,
+        )
+    };
+    let origin_y = unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+            windows::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN,
+        )
+    };
+    virtual_rect_to_client_coords(rect, origin_x, origin_y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::display::DisplayRect;
 
     #[test]
     fn test_workerw_hooking_function() {
@@ -229,5 +363,55 @@ mod tests {
         println!("Progman HWND: {:?}", progman);
         let workerw = attach_to_desktop();
         println!("WorkerW HWND: {:?}", workerw);
+    }
+
+    #[test]
+    fn test_virtual_rect_to_client_coords_negative_origin() {
+        let left_monitor = DisplayRect {
+            left: -1920,
+            top: -360,
+            right: 0,
+            bottom: 720,
+        };
+        let origin_x = -1920;
+        let origin_y = -360;
+
+        let (x, y, w, h) = virtual_rect_to_client_coords(left_monitor, origin_x, origin_y);
+        assert_eq!((x, y, w, h), (0, 0, 1920, 1080));
+
+        let right_monitor = DisplayRect {
+            left: 0,
+            top: 0,
+            right: 3840,
+            bottom: 2160,
+        };
+        let (rx, ry, rw, rh) = virtual_rect_to_client_coords(right_monitor, origin_x, origin_y);
+        assert_eq!((rx, ry, rw, rh), (1920, 360, 3840, 2160));
+    }
+
+    #[test]
+    fn test_map_monitor_rect_to_workerw_null_hwnd_fallback() {
+        let monitor = DisplayRect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        // Calling with null HWND should use SM_XVIRTUALSCREEN / SM_YVIRTUALSCREEN fallback without panic
+        let (x, y, w, h) = map_monitor_rect_to_workerw(HWND::default(), monitor);
+        assert_eq!(w, 1920);
+        assert_eq!(h, 1080);
+        let origin_x = unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+                windows::Win32::UI::WindowsAndMessaging::SM_XVIRTUALSCREEN,
+            )
+        };
+        let origin_y = unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+                windows::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN,
+            )
+        };
+        assert_eq!(x, monitor.left - origin_x);
+        assert_eq!(y, monitor.top - origin_y);
     }
 }

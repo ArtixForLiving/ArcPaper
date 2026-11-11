@@ -10,6 +10,7 @@ use windows::core::{Error, Result, s};
 
 use super::ScreenFit;
 use super::presenter::Presenter;
+use crate::display::{DisplayRect, VirtualDesktopBounds};
 
 /// Embedded HLSL shader code for fullscreen triangle vertex shader and NV12-to-RGB pixel shader.
 const SHADER_SOURCE: &[u8] = b"
@@ -73,6 +74,88 @@ struct RenderParams {
     brightness: f32,
     slice_index: u32,
     _padding: [f32; 2],
+}
+
+/// Computes UV scale and offset for aspect ratio preservation (Fill, Cover, Contain).
+pub fn compute_fit_uv(
+    target_width: u32,
+    target_height: u32,
+    video_width: u32,
+    video_height: u32,
+    fit_mode: ScreenFit,
+) -> ([f32; 2], [f32; 2]) {
+    if target_width == 0 || target_height == 0 || video_width == 0 || video_height == 0 {
+        return ([1.0, 1.0], [0.0, 0.0]);
+    }
+
+    match fit_mode {
+        ScreenFit::Fill => ([1.0, 1.0], [0.0, 0.0]),
+        ScreenFit::Cover => {
+            let aspect_s = target_width as f32 / target_height as f32;
+            let aspect_v = video_width as f32 / video_height as f32;
+            if aspect_s > aspect_v {
+                let scale_y = aspect_v / aspect_s;
+                ([1.0, scale_y], [0.0, (1.0 - scale_y) * 0.5])
+            } else {
+                let scale_x = aspect_s / aspect_v;
+                ([scale_x, 1.0], [(1.0 - scale_x) * 0.5, 0.0])
+            }
+        }
+        ScreenFit::Contain => {
+            let aspect_s = target_width as f32 / target_height as f32;
+            let aspect_v = video_width as f32 / video_height as f32;
+            if aspect_s > aspect_v {
+                let scale_x = aspect_s / aspect_v;
+                ([scale_x, 1.0], [(1.0 - scale_x) * 0.5, 0.0])
+            } else {
+                let scale_y = aspect_v / aspect_s;
+                ([1.0, scale_y], [0.0, (1.0 - scale_y) * 0.5])
+            }
+        }
+    }
+}
+
+/// Computes UV scale and offset for a single monitor participating in a multi-monitor span.
+pub fn compute_span_uv(
+    monitor_rect: DisplayRect,
+    virtual_bounds: VirtualDesktopBounds,
+    video_width: u32,
+    video_height: u32,
+    fit_mode: ScreenFit,
+) -> ([f32; 2], [f32; 2]) {
+    let mon_w = monitor_rect.width();
+    let mon_h = monitor_rect.height();
+
+    if virtual_bounds.width == 0
+        || virtual_bounds.height == 0
+        || video_width == 0
+        || video_height == 0
+        || mon_w == 0
+        || mon_h == 0
+    {
+        return ([1.0, 1.0], [0.0, 0.0]);
+    }
+
+    let (g_scale, g_offset) = compute_fit_uv(
+        virtual_bounds.width,
+        virtual_bounds.height,
+        video_width,
+        video_height,
+        fit_mode,
+    );
+
+    let nx0 = (monitor_rect.left - virtual_bounds.origin_x) as f32 / virtual_bounds.width as f32;
+    let ny0 = (monitor_rect.top - virtual_bounds.origin_y) as f32 / virtual_bounds.height as f32;
+    let nw = mon_w as f32 / virtual_bounds.width as f32;
+    let nh = mon_h as f32 / virtual_bounds.height as f32;
+
+    (
+        [nw * g_scale[0], nh * g_scale[1]],
+        [
+            g_offset[0] + nx0 * g_scale[0],
+            g_offset[1] + ny0 * g_scale[1],
+        ],
+    )
 }
 
 /// Direct3D 11 video pixel renderer.
@@ -200,6 +283,121 @@ impl Renderer {
         })
     }
 
+    /// Renders an NV12 texture frame to a specific render target view with explicit UV mapping.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_nv12_with_uv(
+        &self,
+        device: &ID3D11Device,
+        context: &ID3D11DeviceContext,
+        rtv: &ID3D11RenderTargetView,
+        target_width: u32,
+        target_height: u32,
+        nv12_texture: &ID3D11Texture2D,
+        subresource_index: u32,
+        brightness: f32,
+        uv_scale: [f32; 2],
+        uv_offset: [f32; 2],
+    ) -> Result<()> {
+        if target_width == 0 || target_height == 0 {
+            return Ok(());
+        }
+
+        // 1. Create Plane Y Shader Resource View (R8_UNORM) for subresource slice
+        let srv_y_desc = D3D11_SHADER_RESOURCE_VIEW_DESC {
+            Format: DXGI_FORMAT_R8_UNORM,
+            ViewDimension: D3D_SRV_DIMENSION_TEXTURE2DARRAY,
+            Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 {
+                Texture2DArray: D3D11_TEX2D_ARRAY_SRV {
+                    MostDetailedMip: 0,
+                    MipLevels: 1,
+                    FirstArraySlice: subresource_index,
+                    ArraySize: 1,
+                },
+            },
+        };
+
+        let mut srv_y = None;
+        unsafe {
+            device.CreateShaderResourceView(nv12_texture, Some(&srv_y_desc), Some(&mut srv_y))?;
+        }
+        let srv_y = srv_y.ok_or_else(|| Error::from_hresult(E_FAIL))?;
+
+        // 2. Create Plane UV Shader Resource View (R8G8_UNORM) for subresource slice
+        let srv_uv_desc = D3D11_SHADER_RESOURCE_VIEW_DESC {
+            Format: DXGI_FORMAT_R8G8_UNORM,
+            ViewDimension: D3D_SRV_DIMENSION_TEXTURE2DARRAY,
+            Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 {
+                Texture2DArray: D3D11_TEX2D_ARRAY_SRV {
+                    MostDetailedMip: 0,
+                    MipLevels: 1,
+                    FirstArraySlice: subresource_index,
+                    ArraySize: 1,
+                },
+            },
+        };
+
+        let mut srv_uv = None;
+        unsafe {
+            device.CreateShaderResourceView(nv12_texture, Some(&srv_uv_desc), Some(&mut srv_uv))?;
+        }
+        let srv_uv = srv_uv.ok_or_else(|| Error::from_hresult(E_FAIL))?;
+
+        // 3. Update constant buffer (Dynamic Map/Unmap)
+        let params = RenderParams {
+            uv_scale,
+            uv_offset,
+            brightness,
+            slice_index: 0,
+            _padding: [0.0, 0.0],
+        };
+
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+        unsafe {
+            context.Map(
+                &self.constant_buffer,
+                0,
+                D3D11_MAP_WRITE_DISCARD,
+                0,
+                Some(&mut mapped),
+            )?;
+            std::ptr::copy_nonoverlapping(
+                &params as *const RenderParams as *const u8,
+                mapped.pData as *mut u8,
+                std::mem::size_of::<RenderParams>(),
+            );
+            context.Unmap(&self.constant_buffer, 0);
+        }
+
+        // 4. Setup Viewport and Pipeline bindings
+        let viewport = D3D11_VIEWPORT {
+            TopLeftX: 0.0,
+            TopLeftY: 0.0,
+            Width: target_width as f32,
+            Height: target_height as f32,
+            MinDepth: 0.0,
+            MaxDepth: 1.0,
+        };
+
+        unsafe {
+            context.OMSetRenderTargets(Some(&[Some(rtv.clone())]), None);
+            context.RSSetViewports(Some(&[viewport]));
+            context.VSSetShader(&self.vertex_shader, None);
+            context.PSSetShader(&self.pixel_shader, None);
+            context.PSSetConstantBuffers(0, Some(&[Some(self.constant_buffer.clone())]));
+            context.PSSetSamplers(0, Some(&[Some(self.sampler_state.clone())]));
+            context.PSSetShaderResources(0, Some(&[Some(srv_y), Some(srv_uv)]));
+
+            // Draw fullscreen triangle
+            context.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            context.Draw(3, 0);
+
+            // Unbind SRVs immediately so decoder surface reference is never held locked
+            context.PSSetShaderResources(0, Some(&[None, None]));
+        }
+
+        Ok(())
+    }
+
     /// Renders an NV12 texture frame directly to the presenter's render target.
     #[allow(clippy::too_many_arguments)]
     pub fn render_nv12_frame(
@@ -220,147 +418,26 @@ impl Renderer {
             return Ok(());
         }
 
-        // 1. Create Plane Y Shader Resource View (R8_UNORM) for subresource slice
-        let srv_y_desc = D3D11_SHADER_RESOURCE_VIEW_DESC {
-            Format: DXGI_FORMAT_R8_UNORM,
-            ViewDimension: D3D_SRV_DIMENSION_TEXTURE2DARRAY,
-            Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 {
-                Texture2DArray: D3D11_TEX2D_ARRAY_SRV {
-                    MostDetailedMip: 0,
-                    MipLevels: 1,
-                    FirstArraySlice: subresource_index,
-                    ArraySize: 1,
-                },
-            },
-        };
+        let (uv_scale, uv_offset) = compute_fit_uv(
+            presenter.width,
+            presenter.height,
+            video_width,
+            video_height,
+            fit_mode,
+        );
 
-        let mut srv_y = None;
-        unsafe {
-            presenter.device.CreateShaderResourceView(
-                nv12_texture,
-                Some(&srv_y_desc),
-                Some(&mut srv_y),
-            )?;
-        }
-        let srv_y = srv_y.ok_or_else(|| Error::from_hresult(E_FAIL))?;
-
-        // 2. Create Plane UV Shader Resource View (R8G8_UNORM) for subresource slice
-        let srv_uv_desc = D3D11_SHADER_RESOURCE_VIEW_DESC {
-            Format: DXGI_FORMAT_R8G8_UNORM,
-            ViewDimension: D3D_SRV_DIMENSION_TEXTURE2DARRAY,
-            Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 {
-                Texture2DArray: D3D11_TEX2D_ARRAY_SRV {
-                    MostDetailedMip: 0,
-                    MipLevels: 1,
-                    FirstArraySlice: subresource_index,
-                    ArraySize: 1,
-                },
-            },
-        };
-
-        let mut srv_uv = None;
-        unsafe {
-            presenter.device.CreateShaderResourceView(
-                nv12_texture,
-                Some(&srv_uv_desc),
-                Some(&mut srv_uv),
-            )?;
-        }
-        let srv_uv = srv_uv.ok_or_else(|| Error::from_hresult(E_FAIL))?;
-
-        // 3. Compute UV scaling and offsets for aspect-ratio preservation
-        let (uv_scale, uv_offset) = match fit_mode {
-            ScreenFit::Fill => ([1.0, 1.0], [0.0, 0.0]),
-            ScreenFit::Cover => {
-                let aspect_s = presenter.width as f32 / presenter.height as f32;
-                let aspect_v = video_width as f32 / video_height as f32;
-                if aspect_s > aspect_v {
-                    let scale_y = aspect_v / aspect_s;
-                    ([1.0, scale_y], [0.0, (1.0 - scale_y) * 0.5])
-                } else {
-                    let scale_x = aspect_s / aspect_v;
-                    ([scale_x, 1.0], [(1.0 - scale_x) * 0.5, 0.0])
-                }
-            }
-            ScreenFit::Contain => {
-                let aspect_s = presenter.width as f32 / presenter.height as f32;
-                let aspect_v = video_width as f32 / video_height as f32;
-                if aspect_s > aspect_v {
-                    let scale_x = aspect_s / aspect_v;
-                    ([scale_x, 1.0], [(1.0 - scale_x) * 0.5, 0.0])
-                } else {
-                    let scale_y = aspect_v / aspect_s;
-                    ([1.0, scale_y], [0.0, (1.0 - scale_y) * 0.5])
-                }
-            }
-        };
-
-        // 4. Update constant buffer (Dynamic Map/Unmap)
-        let params = RenderParams {
+        self.render_nv12_with_uv(
+            &presenter.device,
+            &presenter.context,
+            rtv,
+            presenter.width,
+            presenter.height,
+            nv12_texture,
+            subresource_index,
+            brightness,
             uv_scale,
             uv_offset,
-            brightness,
-            slice_index: 0,
-            _padding: [0.0, 0.0],
-        };
-
-        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-        unsafe {
-            presenter.context.Map(
-                &self.constant_buffer,
-                0,
-                D3D11_MAP_WRITE_DISCARD,
-                0,
-                Some(&mut mapped),
-            )?;
-            std::ptr::copy_nonoverlapping(
-                &params as *const RenderParams as *const u8,
-                mapped.pData as *mut u8,
-                std::mem::size_of::<RenderParams>(),
-            );
-            presenter.context.Unmap(&self.constant_buffer, 0);
-        }
-
-        // 5. Setup Viewport and Pipeline bindings
-        let viewport = D3D11_VIEWPORT {
-            TopLeftX: 0.0,
-            TopLeftY: 0.0,
-            Width: presenter.width as f32,
-            Height: presenter.height as f32,
-            MinDepth: 0.0,
-            MaxDepth: 1.0,
-        };
-
-        unsafe {
-            presenter
-                .context
-                .OMSetRenderTargets(Some(&[Some(rtv.clone())]), None);
-            presenter.context.RSSetViewports(Some(&[viewport]));
-            presenter.context.VSSetShader(&self.vertex_shader, None);
-            presenter.context.PSSetShader(&self.pixel_shader, None);
-            presenter
-                .context
-                .PSSetConstantBuffers(0, Some(&[Some(self.constant_buffer.clone())]));
-            presenter
-                .context
-                .PSSetSamplers(0, Some(&[Some(self.sampler_state.clone())]));
-            presenter
-                .context
-                .PSSetShaderResources(0, Some(&[Some(srv_y), Some(srv_uv)]));
-
-            // Draw fullscreen triangle
-            presenter
-                .context
-                .IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            presenter.context.Draw(3, 0);
-
-            // Unbind SRVs immediately so decoder surface reference is never held locked
-            presenter
-                .context
-                .PSSetShaderResources(0, Some(&[None, None]));
-        }
-
-        Ok(())
+        )
     }
 }
 
@@ -419,5 +496,97 @@ mod tests {
             "Constant buffer struct must be 16-byte aligned"
         );
         assert_eq!(std::mem::size_of::<RenderParams>(), 32);
+    }
+
+    #[test]
+    fn test_compute_fit_uv_modes() {
+        // Fill mode is always identity
+        let (scale, offset) = compute_fit_uv(1920, 1080, 1280, 720, ScreenFit::Fill);
+        assert_eq!(scale, [1.0, 1.0]);
+        assert_eq!(offset, [0.0, 0.0]);
+
+        // Cover: screen is wider than video (16:9 screen vs 4:3 video)
+        let (scale_c, offset_c) = compute_fit_uv(1920, 1080, 1440, 1080, ScreenFit::Cover);
+        assert_eq!(scale_c[0], 1.0);
+        assert!(scale_c[1] < 1.0);
+        assert!(offset_c[1] > 0.0);
+
+        // Contain: screen is wider than video (pillarbox: uv_scale > 1.0 and offset < 0 produces border)
+        let (scale_cnt, offset_cnt) = compute_fit_uv(1920, 1080, 1440, 1080, ScreenFit::Contain);
+        assert!(scale_cnt[0] > 1.0);
+        assert_eq!(scale_cnt[1], 1.0);
+        assert!(offset_cnt[0] < 0.0);
+
+        // 0-dimension safety
+        let (s0, o0) = compute_fit_uv(0, 1080, 1920, 1080, ScreenFit::Cover);
+        assert_eq!(s0, [1.0, 1.0]);
+        assert_eq!(o0, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_compute_span_uv_continuous_across_monitors() {
+        use crate::display::{DisplayRect, VirtualDesktopBounds};
+
+        let mon_left = DisplayRect {
+            left: -1920,
+            top: 0,
+            right: 0,
+            bottom: 1080,
+        };
+        let mon_right = DisplayRect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let vbounds = VirtualDesktopBounds {
+            origin_x: -1920,
+            origin_y: 0,
+            width: 3840,
+            height: 1080,
+        };
+        let video_w = 1920;
+        let video_h = 1080;
+
+        for fit_mode in [ScreenFit::Fill, ScreenFit::Cover, ScreenFit::Contain] {
+            let (scale_l, offset_l) =
+                compute_span_uv(mon_left, vbounds, video_w, video_h, fit_mode);
+            let (scale_r, offset_r) =
+                compute_span_uv(mon_right, vbounds, video_w, video_h, fit_mode);
+
+            // Left monitor right edge UV must equal right monitor left edge UV
+            let left_right_edge_u = offset_l[0] + scale_l[0];
+            let right_left_edge_u = offset_r[0];
+            assert!(
+                (left_right_edge_u - right_left_edge_u).abs() < 1e-6,
+                "Seam detected at boundary for fit_mode {:?}: {} vs {}",
+                fit_mode,
+                left_right_edge_u,
+                right_left_edge_u
+            );
+
+            // Scales across both equal halves must match
+            assert!(
+                (scale_l[0] - scale_r[0]).abs() < 1e-6,
+                "Horizontal scales must match for identical monitor widths"
+            );
+            assert!(
+                (scale_l[1] - scale_r[1]).abs() < 1e-6,
+                "Vertical scales must match for identical monitor heights"
+            );
+        }
+
+        // 0-dimension safety: should return ([1.0, 1.0], [0.0, 0.0]) without divide-by-zero
+        let empty_bounds = VirtualDesktopBounds::default();
+        let (s_zero, o_zero) =
+            compute_span_uv(mon_left, empty_bounds, video_w, video_h, ScreenFit::Fill);
+        assert_eq!(s_zero, [1.0, 1.0]);
+        assert_eq!(o_zero, [0.0, 0.0]);
+
+        let empty_rect = DisplayRect::default();
+        let (s_zero2, o_zero2) =
+            compute_span_uv(empty_rect, vbounds, video_w, video_h, ScreenFit::Fill);
+        assert_eq!(s_zero2, [1.0, 1.0]);
+        assert_eq!(o_zero2, [0.0, 0.0]);
     }
 }
