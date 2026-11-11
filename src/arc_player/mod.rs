@@ -1,24 +1,39 @@
 //! ArcPlayer: High-performance, zero-copy, low-memory native Windows video engine.
 
+#[cfg(windows)]
 pub mod autopause;
+#[cfg(windows)]
 pub mod decoder;
 pub mod demux;
 pub mod loop_ctrl;
+#[cfg(windows)]
 pub mod presenter;
+#[cfg(windows)]
 pub mod renderer;
 
+#[cfg(windows)]
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::sync::{Arc, Condvar, Mutex};
+#[cfg(windows)]
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(windows)]
+use std::time::Instant;
+#[cfg(windows)]
 use windows::Win32::Foundation::HWND;
 
+#[cfg(windows)]
 use crate::app::log::{LogLevel, log_throttled, log_with_level};
+#[cfg(windows)]
 pub use autopause::{AutoPause, FramePacer};
+#[cfg(windows)]
 pub use decoder::{DecodedFrame, Decoder};
 pub use demux::{Demuxer, VideoCodec};
 pub use loop_ctrl::LoopController;
+#[cfg(windows)]
 pub use presenter::{Presenter, is_device_lost_error, is_device_lost_hresult};
+#[cfg(windows)]
 pub use renderer::Renderer;
 
 /// Video display scaling modes.
@@ -41,6 +56,7 @@ impl ScreenFit {
 }
 
 /// Shared command state exchanged between the control facade and the playback worker thread.
+#[cfg(windows)]
 struct SharedState {
     video_path: Option<PathBuf>,
     is_paused: bool,
@@ -129,6 +145,7 @@ where
     Err(last_err)
 }
 
+#[cfg(windows)]
 fn snap_to_nearest_keyframe(demux: &Demuxer, lctrl: &mut LoopController) {
     let frames = demux.frames();
     if frames.is_empty() {
@@ -142,6 +159,7 @@ fn snap_to_nearest_keyframe(demux: &Demuxer, lctrl: &mut LoopController) {
     lctrl.current_frame_idx = key_idx;
 }
 
+#[cfg(windows)]
 fn build_d3d_pipeline(
     hwnd: HWND,
     width: u32,
@@ -169,11 +187,13 @@ fn build_d3d_pipeline(
 }
 
 /// Main ArcPlayer coordinator orchestrating playback via a dedicated background rendering thread.
+#[cfg(windows)]
 pub struct ArcPlayer {
     state: Arc<(Mutex<SharedState>, Condvar)>,
     thread_handle: Option<JoinHandle<()>>,
 }
 
+#[cfg(windows)]
 impl ArcPlayer {
     /// Spawns a dedicated playback thread attached to the target WorkerW desktop window.
     pub fn new(hwnd: HWND, initial_width: u32, initial_height: u32) -> Result<Self, String> {
@@ -754,6 +774,7 @@ impl ArcPlayer {
     pub fn drain_events(&self) {}
 }
 
+#[cfg(windows)]
 impl Drop for ArcPlayer {
     fn drop(&mut self) {
         {
@@ -773,6 +794,7 @@ impl Drop for ArcPlayer {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
     #[test]
     fn test_arc_player_control_api() {
         let initial_state = SharedState {

@@ -2,4 +2,5 @@
 
 pub mod app;
 pub mod arc_player;
+#[cfg(windows)]
 pub mod workerw;

@@ -1,7 +1,10 @@
 //! Smart Auto-Pause foreground monitor and manual-pause precedence rules.
 
+#[cfg(windows)]
 use std::time::Duration;
+#[cfg(windows)]
 use windows::Win32::Foundation::{HWND, RECT};
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClassNameW, GetForegroundWindow, GetSystemMetrics, GetWindowRect, GetWindowThreadProcessId,
     IsIconic, IsWindowVisible, IsZoomed, SM_CXSCREEN, SM_CYSCREEN,
@@ -10,6 +13,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// Computes whether playback must be paused given foreground coverage and manual pause state.
 pub fn resolve_effective_pause(is_covered: bool, is_manually_paused: bool) -> bool {
     is_covered || is_manually_paused
+}
+
+/// Resolves playback pause state and `is_auto_paused` flag when the user toggles manual pause from the tray.
+pub fn apply_manual_pause_toggle(is_covered: bool, next_manually_paused: bool) -> (bool, bool) {
+    let effective_paused = resolve_effective_pause(is_covered, next_manually_paused);
+    let next_auto_paused = !next_manually_paused && is_covered;
+    (effective_paused, next_auto_paused)
 }
 
 /// Computes the next `(effective_paused, next_is_auto_paused, optional_log_msg)` tuple.
@@ -46,6 +56,7 @@ pub fn compute_autopause_transition(
 ///
 /// # Safety
 /// Caller must pass a valid Win32 `HWND` obtained from `GetForegroundWindow`.
+#[cfg(windows)]
 pub unsafe fn is_foreground_covering_screen(
     fg: HWND,
     screen_w: i32,
@@ -102,6 +113,7 @@ pub unsafe fn is_foreground_covering_screen(
 }
 
 /// Spawns the lightweight background foreground window monitor thread (1000ms interval).
+#[cfg(windows)]
 pub fn spawn_monitor_thread<F>(on_cover_change: F)
 where
     F: Fn(bool) + Send + 'static,
@@ -182,5 +194,33 @@ mod tests {
         assert!(!eff4);
         assert!(!auto4);
         assert!(log4.is_some());
+    }
+
+    #[test]
+    fn test_manual_resume_while_covered_stays_paused() {
+        assert_eq!(
+            apply_manual_pause_toggle(true, false),
+            (true, true),
+            "manual resume when covered must keep playback paused with is_auto_paused=true"
+        );
+        assert_eq!(
+            apply_manual_pause_toggle(true, true),
+            (true, false),
+            "manual pause when covered keeps paused with is_auto_paused=false"
+        );
+    }
+
+    #[test]
+    fn test_manual_resume_while_uncovered_resumes() {
+        assert_eq!(
+            apply_manual_pause_toggle(false, false),
+            (false, false),
+            "manual resume when uncovered must resume playback with is_auto_paused=false"
+        );
+        assert_eq!(
+            apply_manual_pause_toggle(false, true),
+            (true, false),
+            "manual pause when uncovered pauses playback with is_auto_paused=false"
+        );
     }
 }

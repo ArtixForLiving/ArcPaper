@@ -1,20 +1,29 @@
 //! Asynchronous GitHub release update checker.
 
+#[cfg(windows)]
 use super::log::{LogLevel, log_msg, log_with_level};
 use serde::Deserialize;
+#[cfg(windows)]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
 use std::time::Duration;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     IDYES, MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_YESNO, MessageBoxW,
 };
+#[cfg(windows)]
 use windows::core::HSTRING;
 
+#[cfg(windows)]
 const GITHUB_RELEASES_API_URL: &str =
     "https://api.github.com/repos/ArtixForLiving/ArcPaper/releases/latest";
 
+#[cfg(windows)]
 static IS_CHECKING_UPDATES: AtomicBool = AtomicBool::new(false);
 
+#[cfg(windows)]
 struct UpdateCheckGuard;
+#[cfg(windows)]
 impl Drop for UpdateCheckGuard {
     fn drop(&mut self) {
         IS_CHECKING_UPDATES.store(false, Ordering::SeqCst);
@@ -52,6 +61,7 @@ pub fn is_newer_release(latest_tag: &str, current_ver: &str) -> bool {
     }
 }
 
+#[cfg(windows)]
 fn show_update_dialog_failed() {
     let title = HSTRING::from("ArcPaper");
     let message = HSTRING::from(
@@ -63,6 +73,7 @@ fn show_update_dialog_failed() {
 }
 
 /// Queries the GitHub Releases API and notifies the user with a native dialog.
+#[cfg(windows)]
 pub fn check_for_updates() {
     if IS_CHECKING_UPDATES
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)

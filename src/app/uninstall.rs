@@ -1,15 +1,21 @@
 //! Clean uninstallation handler removing startup entries and restoring desktop wallpaper.
 
+#[cfg(windows)]
 use super::autostart::disable_autostart;
+#[cfg(windows)]
 use super::log::{LogLevel, log_msg, log_with_level};
+#[cfg(windows)]
 use super::paths::{get_config_path, get_main_exe_path};
 use std::path::Path;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     IDYES, MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_YESNO, MessageBoxW, SPI_SETDESKWALLPAPER,
     SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SystemParametersInfoW,
 };
+#[cfg(windows)]
 use windows::core::HSTRING;
 
+#[cfg(windows)]
 pub fn restore_default_wallpaper() {
     unsafe {
         let _ = SystemParametersInfoW(
@@ -31,6 +37,7 @@ pub fn format_uninstall_command(exe_path: &Path, config_path: &Path) -> String {
 
 /// Uninstalls ArcPaper by removing startup registry entries, restoring the default desktop wallpaper,
 /// launching a background self-deletion script, and exiting cleanly.
+#[cfg(windows)]
 pub fn perform_uninstall() {
     let title = HSTRING::from("Uninstall ArcPaper");
     let confirm_msg = HSTRING::from(

@@ -60,6 +60,7 @@ pub fn get_app_log_path() -> PathBuf {
 }
 
 /// Sets working directory, DLL search path, and Per-Monitor V2 DPI awareness for the main process.
+#[cfg(windows)]
 pub fn configure_process_and_dpi() {
     let main_exe = get_main_exe_path();
     if let Some(exe_dir) = main_exe.parent() {

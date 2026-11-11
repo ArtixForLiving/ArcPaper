@@ -1,10 +1,12 @@
 //! Application-layer modules separated from the main GUI entry point.
 
 pub mod autopause_monitor;
+#[cfg(windows)]
 pub mod autostart;
 pub mod config;
 pub mod log;
 pub mod paths;
+#[cfg(windows)]
 pub mod tray;
 pub mod uninstall;
 pub mod updater;
