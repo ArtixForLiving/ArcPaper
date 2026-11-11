@@ -205,7 +205,10 @@ mod tests {
                 1 => LogLevel::Warn,
                 _ => LogLevel::Info,
             };
-            logger.write(level, &format!("diagnostic message index {i} padding_payload_here"));
+            logger.write(
+                level,
+                &format!("diagnostic message index {i} padding_payload_here"),
+            );
         }
 
         let active = std::fs::read_to_string(dir.join("app.log")).expect("app.log should exist");

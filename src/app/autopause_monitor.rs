@@ -27,7 +27,9 @@ pub fn compute_autopause_transition(
         (
             effective_paused,
             true,
-            Some("[ArcPaper] Smart Auto-Pause: Maximized / fullscreen window active. Wallpaper paused."),
+            Some(
+                "[ArcPaper] Smart Auto-Pause: Maximized / fullscreen window active. Wallpaper paused.",
+            ),
         )
     } else if !is_covered && was_auto_paused {
         (
@@ -164,7 +166,10 @@ mod tests {
         assert!(log1.is_none());
 
         let (eff2, auto2, log2) = compute_autopause_transition(false, true, auto1);
-        assert!(eff2, "manual pause must remain paused when window un-maximizes");
+        assert!(
+            eff2,
+            "manual pause must remain paused when window un-maximizes"
+        );
         assert!(!auto2);
         assert!(log2.is_none());
 

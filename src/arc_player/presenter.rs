@@ -43,10 +43,12 @@ unsafe extern "system" fn child_wnd_proc(
             windows::Win32::Foundation::LRESULT(-1)
         }
         // Hand WM_SETCURSOR over to DefWindowProcW to prevent cursor freezing on the loading ring
-        windows::Win32::UI::WindowsAndMessaging::WM_SETCURSOR => {
-            unsafe { windows::Win32::UI::WindowsAndMessaging::DefWindowProcW(hwnd, msg, wparam, lparam) }
-        }
-        _ => unsafe { windows::Win32::UI::WindowsAndMessaging::DefWindowProcW(hwnd, msg, wparam, lparam) },
+        windows::Win32::UI::WindowsAndMessaging::WM_SETCURSOR => unsafe {
+            windows::Win32::UI::WindowsAndMessaging::DefWindowProcW(hwnd, msg, wparam, lparam)
+        },
+        _ => unsafe {
+            windows::Win32::UI::WindowsAndMessaging::DefWindowProcW(hwnd, msg, wparam, lparam)
+        },
     }
 }
 
@@ -237,7 +239,9 @@ impl Presenter {
         // Resize child window if one was created
         if let Some(child) = self.child_hwnd {
             unsafe {
-                use windows::Win32::UI::WindowsAndMessaging::{SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos};
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos,
+                };
                 let _ = SetWindowPos(
                     child,
                     None,
@@ -277,11 +281,7 @@ impl Presenter {
     /// Presents the rendered backbuffer to the display.
     pub fn present(&self, vsync: bool) -> Result<()> {
         let sync_interval = if vsync { 1 } else { 0 };
-        unsafe {
-            self.swap_chain
-                .Present(sync_interval, DXGI_PRESENT(0))
-                .ok()
-        }
+        unsafe { self.swap_chain.Present(sync_interval, DXGI_PRESENT(0)).ok() }
     }
 
     /// Flushes the pipeline and signals the GPU driver to trim internal allocation caches during hibernation.

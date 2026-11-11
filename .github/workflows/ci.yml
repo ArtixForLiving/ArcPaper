@@ -1,0 +1,55 @@
+name: Windows CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run Clippy lints
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Verify no hardcoded local paths remain in source
+        shell: pwsh
+        run: |
+          $legacy = -join @("Arc", " Paper")
+          $matches = Select-String -Path src\**\*.rs,src\*.rs,tests\*.rs,Cargo.toml -Pattern $legacy -ErrorAction SilentlyContinue
+          if ($matches) {
+            $matches | ForEach-Object { Write-Error "$($_.Path):$($_.LineNumber): $($_.Line)" }
+            exit 1
+          }
+
+      - name: Run unit and integration tests
+        run: cargo test --verbose
+
+      - name: Build optimized release binary and enforce size budget
+        shell: pwsh
+        run: |
+          cargo build --release
+          $exe = Get-Item target\release\arc_paper.exe
+          Write-Host "Release binary size: $($exe.Length) bytes"
+          if ($exe.Length -gt 2621440) {
+            Write-Error "Binary size $($exe.Length) exceeds 2.5 MB budget (2621440 bytes)"
+            exit 1
+          }

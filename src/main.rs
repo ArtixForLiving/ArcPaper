@@ -32,7 +32,10 @@ enum UserEvent {
 
 fn log_fps_limit(target_fps: Option<u32>) {
     match target_fps {
-        Some(fps) => log_msg(&format!("[ArcPaper] Applying FPS pacing limit: {} FPS", fps)),
+        Some(fps) => log_msg(&format!(
+            "[ArcPaper] Applying FPS pacing limit: {} FPS",
+            fps
+        )),
         None => log_msg("[ArcPaper] Resetting FPS pacing to Native frame rate"),
     }
 }
@@ -56,7 +59,10 @@ fn activate_wallpaper(
 ) {
     if let Some(player) = arc_player {
         if let Err(e) = player.load_file(video_path) {
-            log_with_level(LogLevel::Error, &format!("[ArcPaper] Error loading video: {}", e));
+            log_with_level(
+                LogLevel::Error,
+                &format!("[ArcPaper] Error loading video: {}", e),
+            );
         }
         if let Some(fps) = player.detect_native_fps() {
             *current_native_fps = fps.round() as u32;
@@ -82,7 +88,11 @@ fn activate_wallpaper(
 
 fn main() {
     configure_process_and_dpi();
-    init_logger(get_app_dir(), DEFAULT_MAX_LOG_BYTES, DEFAULT_MAX_LOG_BACKUPS);
+    init_logger(
+        get_app_dir(),
+        DEFAULT_MAX_LOG_BYTES,
+        DEFAULT_MAX_LOG_BACKUPS,
+    );
 
     let _instance_mutex = unsafe {
         use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
@@ -127,8 +137,11 @@ fn main() {
     let mut current_native_fps = 60u32;
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-    let (tray_icon, mut controls) =
-        build_initial_tray_icon(&saved_wallpapers_dir, &wp_state.borrow(), current_native_fps);
+    let (tray_icon, mut controls) = build_initial_tray_icon(
+        &saved_wallpapers_dir,
+        &wp_state.borrow(),
+        current_native_fps,
+    );
 
     let proxy_tray = event_loop.create_proxy();
     let proxy_tray_cb = proxy_tray.clone();
@@ -178,7 +191,8 @@ fn main() {
 
     let mut is_auto_paused = false;
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::WaitUntil(std::time::Instant::now() + Duration::from_millis(200));
+        *control_flow =
+            ControlFlow::WaitUntil(std::time::Instant::now() + Duration::from_millis(200));
         let _keep_tray = &tray_icon;
 
         while tray_icon::TrayIconEvent::receiver().try_recv().is_ok() {}
@@ -218,7 +232,10 @@ fn main() {
                     {
                         let dest_path = saved_wallpapers_dir.join(file_name);
                         if let Err(e) = std::fs::copy(&source_path, &dest_path) {
-                            log_with_level(LogLevel::Error, &format!("[ArcPaper] Copy failed: {e:?}"));
+                            log_with_level(
+                                LogLevel::Error,
+                                &format!("[ArcPaper] Copy failed: {e:?}"),
+                            );
                         } else {
                             activate_wallpaper(
                                 &dest_path,
@@ -312,7 +329,10 @@ fn main() {
                         enable_autostart()
                     };
                     if let Err(e) = res {
-                        log_with_level(LogLevel::Error, &format!("[ArcPaper] Auto-start error: {e:?}"));
+                        log_with_level(
+                            LogLevel::Error,
+                            &format!("[ArcPaper] Auto-start error: {e:?}"),
+                        );
                     }
                     controls.autostart_item.set_checked(is_autostart_enabled());
                     controls = rebuild_tray(

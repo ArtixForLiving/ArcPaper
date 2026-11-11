@@ -143,7 +143,9 @@ impl Demuxer {
             return Err(invalid_data("No video frames found in MP4 stream"));
         }
         if self.codec.is_none() {
-            return Err(invalid_data("Unsupported or missing video codec in MP4 stream"));
+            return Err(invalid_data(
+                "Unsupported or missing video codec in MP4 stream",
+            ));
         }
 
         self.reader = Some(Box::new(reader));
@@ -974,8 +976,7 @@ impl Demuxer {
 
             self.packet_buffer
                 .extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
-            self.packet_buffer
-                .extend_from_slice(&nals[offset..nal_end]);
+            self.packet_buffer.extend_from_slice(&nals[offset..nal_end]);
             offset = nal_end;
         }
 
@@ -1054,7 +1055,8 @@ mod tests {
             let avcc = box_bytes(
                 b"avcC",
                 &[
-                    1, 0x64, 0x00, 0x1F, 0xFF, // version, profile, compat, level, nal_len_size=4
+                    1, 0x64, 0x00, 0x1F,
+                    0xFF, // version, profile, compat, level, nal_len_size=4
                     0xE1, 0x00, 0x04, 0x67, 0x64, 0x00, 0x1F, // 1 SPS
                     0x01, 0x00, 0x02, 0x68, 0xEE, // 1 PPS
                 ],
@@ -1210,7 +1212,10 @@ mod tests {
         let path = write_temp_mp4("bad_stts", &mp4);
 
         let mut demuxer = Demuxer::new();
-        assert!(demuxer.open(&path).is_err(), "oversized stts count must return Err");
+        assert!(
+            demuxer.open(&path).is_err(),
+            "oversized stts count must return Err"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1225,7 +1230,10 @@ mod tests {
         let path = write_temp_mp4("bad_stsz", &mp4);
 
         let mut demuxer = Demuxer::new();
-        assert!(demuxer.open(&path).is_err(), "oversized stsz sample_count must return Err");
+        assert!(
+            demuxer.open(&path).is_err(),
+            "oversized stsz sample_count must return Err"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1242,7 +1250,10 @@ mod tests {
         let path = write_temp_mp4("bad_stsd", &mp4);
 
         let mut demuxer = Demuxer::new();
-        assert!(demuxer.open(&path).is_err(), "zero entry_size in stsd must return Err");
+        assert!(
+            demuxer.open(&path).is_err(),
+            "zero entry_size in stsd must return Err"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1257,20 +1268,27 @@ mod tests {
         let path = write_temp_mp4("bad_stco", &mp4);
 
         let mut demuxer = Demuxer::new();
-        assert!(demuxer.open(&path).is_err(), "out-of-bounds stco offset must return Err");
+        assert!(
+            demuxer.open(&path).is_err(),
+            "out-of-bounds stco offset must return Err"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
     #[test]
     fn test_parse_real_video_and_loop() {
-        let test_path = Path::new(r"D:\Arc Paper\SavedWallpapers\cyanex-in-warframe.1920x1080.mp4");
-        if !test_path.exists() {
-            println!("Test wallpaper not present, skipping real file test.");
-            return;
-        }
+        let test_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("assets")
+            .join("sample_h264.mp4");
+        assert!(
+            test_path.exists(),
+            "Portable test MP4 asset missing at {:?}",
+            test_path
+        );
 
         let mut demuxer = Demuxer::new();
-        demuxer.open(test_path).expect("Failed to open test MP4");
+        demuxer.open(&test_path).expect("Failed to open test MP4");
 
         assert!(demuxer.width() > 0);
         assert!(demuxer.height() > 0);

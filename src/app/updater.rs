@@ -95,7 +95,10 @@ pub fn check_for_updates() {
         Err(e) => {
             log_with_level(
                 LogLevel::Warn,
-                &format!("[ArcPaper] Failed to fetch release from GitHub API: {:?}", e),
+                &format!(
+                    "[ArcPaper] Failed to fetch release from GitHub API: {:?}",
+                    e
+                ),
             );
             show_update_dialog_failed();
             return;

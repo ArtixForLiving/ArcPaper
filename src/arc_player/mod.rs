@@ -146,7 +146,12 @@ fn build_d3d_pipeline(
             snap_to_nearest_keyframe(demux, lctrl);
         }
         let codec = demux.codec().unwrap_or(VideoCodec::H264);
-        Some(Decoder::new(pres.device(), codec, demux.width(), demux.height())?)
+        Some(Decoder::new(
+            pres.device(),
+            codec,
+            demux.width(),
+            demux.height(),
+        )?)
     } else {
         None
     };
@@ -201,7 +206,7 @@ impl ArcPlayer {
     ) {
         // Explicit COM & Media Foundation initialization on this worker thread
         unsafe {
-            use windows::Win32::Media::MediaFoundation::{MFStartup, MF_VERSION, MFSTARTUP_FULL};
+            use windows::Win32::Media::MediaFoundation::{MF_VERSION, MFSTARTUP_FULL, MFStartup};
             use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
 
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -218,7 +223,11 @@ impl ArcPlayer {
             Err(e) => {
                 log_with_level(
                     LogLevel::Error,
-                    &format!("[ArcPlayer] Initial Presenter::new failed ({:?}): {}", e.code(), e),
+                    &format!(
+                        "[ArcPlayer] Initial Presenter::new failed ({:?}): {}",
+                        e.code(),
+                        e
+                    ),
                 );
                 return;
             }
@@ -229,7 +238,11 @@ impl ArcPlayer {
             Err(e) => {
                 log_with_level(
                     LogLevel::Error,
-                    &format!("[ArcPlayer] Initial Renderer::new failed ({:?}): {}", e.code(), e),
+                    &format!(
+                        "[ArcPlayer] Initial Renderer::new failed ({:?}): {}",
+                        e.code(),
+                        e
+                    ),
                 );
                 return;
             }
@@ -318,9 +331,15 @@ impl ArcPlayer {
                         "resize_err",
                         Duration::from_secs(5),
                         LogLevel::Error,
-                        &format!("[ArcPlayer] Presenter::resize failed ({:?}): {}", e.code(), e),
+                        &format!(
+                            "[ArcPlayer] Presenter::resize failed ({:?}): {}",
+                            e.code(),
+                            e
+                        ),
                     );
-                    if is_device_lost_error(&e) || is_device_lost_hresult(pres.device_removed_reason()) {
+                    if is_device_lost_error(&e)
+                        || is_device_lost_hresult(pres.device_removed_reason())
+                    {
                         needs_device_recovery = true;
                     }
                 }
@@ -418,9 +437,8 @@ impl ArcPlayer {
                     && state.video_path == loaded_path
                     && state.resize_req.is_none()
                 {
-                    let (new_state, _) = cvar
-                        .wait_timeout(state, Duration::from_millis(50))
-                        .unwrap();
+                    let (new_state, _) =
+                        cvar.wait_timeout(state, Duration::from_millis(50)).unwrap();
                     state = new_state;
 
                     // Drain Win32 message queue while paused to ensure continuous responsiveness
@@ -521,7 +539,11 @@ impl ArcPlayer {
                                     "decode_err",
                                     Duration::from_secs(5),
                                     LogLevel::Error,
-                                    &format!("[ArcPlayer] feed_and_decode error ({:?}): {}", e.code(), e),
+                                    &format!(
+                                        "[ArcPlayer] feed_and_decode error ({:?}): {}",
+                                        e.code(),
+                                        e
+                                    ),
                                 );
                                 if is_device_lost_error(&e)
                                     || is_device_lost_hresult(pres.device_removed_reason())

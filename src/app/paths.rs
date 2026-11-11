@@ -26,9 +26,7 @@ pub fn resolve_main_exe_from(current_exe: Option<&Path>) -> PathBuf {
 pub fn resolve_app_dir_from(current_exe: Option<&Path>, cwd: Option<&Path>) -> PathBuf {
     if let Some(exe) = current_exe {
         let is_deps = exe.components().any(|c| c.as_os_str() == "deps");
-        if !is_deps
-            && let Some(parent) = exe.parent()
-        {
+        if !is_deps && let Some(parent) = exe.parent() {
             return parent.to_path_buf();
         }
     }

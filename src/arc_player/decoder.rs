@@ -117,7 +117,9 @@ impl Decoder {
         }
 
         // 4. Enable D3D11 awareness, shader resource bind flags, and low latency attributes
-        use windows::Win32::Graphics::Direct3D11::{D3D11_BIND_DECODER, D3D11_BIND_SHADER_RESOURCE};
+        use windows::Win32::Graphics::Direct3D11::{
+            D3D11_BIND_DECODER, D3D11_BIND_SHADER_RESOURCE,
+        };
         let bind_flags = (D3D11_BIND_DECODER.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32;
 
         if let Ok(attrs) = unsafe { transform.GetAttributes() } {
@@ -332,14 +334,20 @@ mod tests {
 
     #[test]
     fn test_hardware_decode_real_video() {
-        let test_path = Path::new(r"D:\Arc Paper\SavedWallpapers\cyanex-in-warframe.1920x1080.mp4");
-        if !test_path.exists() {
-            return;
-        }
+        let test_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("assets")
+            .join("sample_h264.mp4");
+        assert!(
+            test_path.exists(),
+            "Portable test MP4 asset missing at {:?}",
+            test_path
+        );
+
         let mut device = None;
         let mut context = None;
         let flags = D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-        unsafe {
+        let device_res = unsafe {
             D3D11CreateDevice(
                 None,
                 D3D_DRIVER_TYPE_HARDWARE,
@@ -351,25 +359,34 @@ mod tests {
                 None,
                 Some(&mut context),
             )
-            .expect("D3D11 device creation failed");
+        };
+        if let Err(e) = device_res {
+            println!(
+                "Skipping hardware decode integration test: D3D11 hardware device unavailable ({e})"
+            );
+            return;
         }
-        let device = device.unwrap();
-        println!("D3D11 device created successfully!");
+        let device = match device {
+            Some(d) => d,
+            None => {
+                println!("Skipping hardware decode integration test: D3D11 device handle was None");
+                return;
+            }
+        };
 
         let mut demuxer = Demuxer::new();
-        demuxer.open(test_path).expect("Failed to open test MP4");
+        demuxer.open(&test_path).expect("Failed to open test MP4");
         let codec = demuxer.codec().expect("Failed to detect codec");
-        use std::io::Write;
-        println!(
-            "Demuxer opened! Codec: {:?}, {}x{}",
-            codec,
-            demuxer.width(),
-            demuxer.height()
-        );
-        let _ = std::io::stdout().flush();
 
-        let mut decoder = Decoder::new(&device, codec, demuxer.width(), demuxer.height())
-            .expect("Hardware Decoder initialization failed");
+        let mut decoder = match Decoder::new(&device, codec, demuxer.width(), demuxer.height()) {
+            Ok(dec) => dec,
+            Err(e) => {
+                println!(
+                    "Skipping hardware decode integration test: hardware MFT decoder unavailable ({e})"
+                );
+                return;
+            }
+        };
 
         let mut loop_ctrl = LoopController::new(demuxer.frame_count());
         let mut decoded_frames = 0;
