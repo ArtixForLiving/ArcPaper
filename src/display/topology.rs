@@ -128,6 +128,49 @@ impl TopologyDiff {
     }
 }
 
+/// Coalesces burst display change and DPI notifications into a single debounced event.
+#[derive(Debug, Clone)]
+pub struct DisplayDebounce {
+    delay: std::time::Duration,
+    pending_deadline: Option<std::time::Instant>,
+}
+
+impl DisplayDebounce {
+    /// Creates a new debounce timer with the specified quiet window duration.
+    pub fn new(delay: std::time::Duration) -> Self {
+        Self {
+            delay,
+            pending_deadline: None,
+        }
+    }
+
+    /// Triggers or extends the debounce deadline to `now + delay`.
+    pub fn trigger_at(&mut self, now: std::time::Instant) {
+        self.pending_deadline = Some(now + self.delay);
+    }
+
+    /// Returns the active deadline if a debounce window is currently pending.
+    pub fn next_deadline(&self) -> Option<std::time::Instant> {
+        self.pending_deadline
+    }
+
+    /// Returns true if a debounce window is currently active and waiting to elapse.
+    pub fn is_pending(&self) -> bool {
+        self.pending_deadline.is_some()
+    }
+
+    /// Returns true if the debounce window has elapsed, resetting internal state to idle.
+    pub fn poll_ready(&mut self, now: std::time::Instant) -> bool {
+        match self.pending_deadline {
+            Some(deadline) if now >= deadline => {
+                self.pending_deadline = None;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
 /// Raw record read from hardware/OS enumeration before stabilization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawMonitorRecord {
@@ -716,5 +759,49 @@ mod tests {
             ids.dedup();
             assert_eq!(ids.len(), orig_len, "All monitor IDs must be unique");
         }
+    }
+
+    #[test]
+    fn test_display_debounce_coalesces_burst_events() {
+        let mut debounce = DisplayDebounce::new(std::time::Duration::from_millis(200));
+        let start = std::time::Instant::now();
+
+        assert!(!debounce.is_pending());
+        assert_eq!(debounce.next_deadline(), None);
+        assert!(!debounce.poll_ready(start));
+
+        // First trigger at T+0ms
+        debounce.trigger_at(start);
+        assert!(debounce.is_pending());
+        assert_eq!(
+            debounce.next_deadline(),
+            Some(start + std::time::Duration::from_millis(200))
+        );
+        assert!(!debounce.poll_ready(start + std::time::Duration::from_millis(50)));
+
+        // Second burst trigger at T+50ms (extends deadline to T+250ms)
+        let t50 = start + std::time::Duration::from_millis(50);
+        debounce.trigger_at(t50);
+        assert_eq!(
+            debounce.next_deadline(),
+            Some(t50 + std::time::Duration::from_millis(200))
+        );
+
+        // Third burst trigger at T+120ms (extends deadline to T+320ms)
+        let t120 = start + std::time::Duration::from_millis(120);
+        debounce.trigger_at(t120);
+        let final_deadline = t120 + std::time::Duration::from_millis(200);
+        assert_eq!(debounce.next_deadline(), Some(final_deadline));
+
+        // At T+300ms, not ready yet
+        assert!(!debounce.poll_ready(start + std::time::Duration::from_millis(300)));
+        assert!(debounce.is_pending());
+
+        // At T+320ms (exact deadline), ready!
+        assert!(debounce.poll_ready(final_deadline));
+        // After being consumed, it resets
+        assert!(!debounce.is_pending());
+        assert_eq!(debounce.next_deadline(), None);
+        assert!(!debounce.poll_ready(final_deadline + std::time::Duration::from_millis(10)));
     }
 }

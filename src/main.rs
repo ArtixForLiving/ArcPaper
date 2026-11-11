@@ -5,9 +5,7 @@ fn main() {}
 
 #[cfg(windows)]
 mod windows_app {
-    use arc_paper::app::autopause_monitor::{
-        apply_manual_pause_toggle, compute_autopause_transition, spawn_monitor_thread,
-    };
+    use arc_paper::app::autopause_monitor::{resolve_effective_pause, spawn_multi_monitor_thread};
     use arc_paper::app::autostart::{disable_autostart, enable_autostart, is_autostart_enabled};
     use arc_paper::app::config::{AppConfig, load_config, save_config};
     use arc_paper::app::log::{
@@ -18,24 +16,175 @@ mod windows_app {
         configure_process_and_dpi, get_app_dir, get_config_path, get_saved_wallpapers_dir,
         list_mp4_files,
     };
-    use arc_paper::app::tray::{build_initial_tray_icon, rebuild_tray};
+    use arc_paper::app::tray::{TrayAction, TrayControls, build_initial_tray_icon, rebuild_tray};
     use arc_paper::app::uninstall::perform_uninstall;
     use arc_paper::app::updater::check_for_updates;
-    use arc_paper::arc_player::{ArcPlayer, AutoPause};
+    use arc_paper::arc_player::{AutoPause, WallpaperManager};
+    use arc_paper::display::topology::DisplayDebounce;
+    use arc_paper::display::{MonitorId, MonitorInfo, diff_topologies, enumerate_monitors};
     use arc_paper::workerw;
 
     use std::cell::RefCell;
+    use std::collections::BTreeMap;
     use std::path::Path;
     use std::rc::Rc;
+    use std::sync::{Arc, RwLock};
     use std::time::Duration;
     use tao::event::Event;
-    use tao::event_loop::{ControlFlow, EventLoopBuilder};
+    use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
     use tray_icon::menu::MenuEvent;
-    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+    use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::GWLP_USERDATA;
 
     enum UserEvent {
         TrayMenu(MenuEvent),
-        AutoPause(bool),
+        AutoPauseMap(BTreeMap<MonitorId, bool>),
+        DisplayTopologyDirty,
+        ExplorerRestarted,
+    }
+
+    struct EventHostContext {
+        proxy: EventLoopProxy<UserEvent>,
+        taskbar_created_msg: u32,
+    }
+
+    struct ArcPaperEventHost {
+        hwnd: HWND,
+        ctx: *mut EventHostContext,
+    }
+
+    unsafe extern "system" fn event_host_wnd_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            DefWindowProcW, SetWindowLongPtrW, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED,
+            WM_SETTINGCHANGE,
+        };
+
+        unsafe {
+            if msg == WM_CREATE {
+                let create_struct =
+                    &*(lparam.0 as *const windows::Win32::UI::WindowsAndMessaging::CREATESTRUCTW);
+                let ctx_ptr = create_struct.lpCreateParams as isize;
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, ctx_ptr);
+                return LRESULT(0);
+            }
+
+            let ctx_ptr =
+                windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+            if ctx_ptr != 0 {
+                let ctx = &*(ctx_ptr as *const EventHostContext);
+
+                const SPI_SETWORKAREA: usize = 0x002F;
+                const SPI_SETLOGICALDPIOVERRIDE: usize = 0x009F;
+
+                if msg == WM_DISPLAYCHANGE || msg == WM_DPICHANGED {
+                    let _ = ctx.proxy.send_event(UserEvent::DisplayTopologyDirty);
+                    return LRESULT(0);
+                } else if msg == WM_SETTINGCHANGE {
+                    if wparam.0 == SPI_SETWORKAREA || wparam.0 == SPI_SETLOGICALDPIOVERRIDE {
+                        let _ = ctx.proxy.send_event(UserEvent::DisplayTopologyDirty);
+                        return LRESULT(0);
+                    }
+                } else if ctx.taskbar_created_msg != 0 && msg == ctx.taskbar_created_msg {
+                    let _ = ctx.proxy.send_event(UserEvent::ExplorerRestarted);
+                    return LRESULT(0);
+                }
+            }
+
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+    }
+
+    impl ArcPaperEventHost {
+        pub fn new(proxy: EventLoopProxy<UserEvent>) -> Result<Self, String> {
+            use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+            use windows::Win32::UI::WindowsAndMessaging::{
+                CS_HREDRAW, CS_VREDRAW, CreateWindowExW, HCURSOR, HICON, RegisterClassExW,
+                RegisterWindowMessageW, SetWindowLongPtrW, WNDCLASSEXW, WS_EX_NOACTIVATE,
+                WS_EX_TOOLWINDOW, WS_POPUP,
+            };
+            use windows::core::{PCWSTR, w};
+
+            unsafe {
+                let hinstance = match GetModuleHandleW(None) {
+                    Ok(h) => h,
+                    Err(e) => return Err(format!("GetModuleHandleW failed: {e}")),
+                };
+                let hinst = HINSTANCE(hinstance.0);
+                let class_name = w!("ArcPaperEventHost");
+
+                let wcx = WNDCLASSEXW {
+                    cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                    style: CS_HREDRAW | CS_VREDRAW,
+                    lpfnWndProc: Some(event_host_wnd_proc),
+                    cbClsExtra: 0,
+                    cbWndExtra: 0,
+                    hInstance: hinst,
+                    hIcon: HICON::default(),
+                    hCursor: HCURSOR::default(),
+                    hbrBackground: windows::Win32::Graphics::Gdi::HBRUSH::default(),
+                    lpszMenuName: PCWSTR::null(),
+                    lpszClassName: class_name,
+                    hIconSm: HICON::default(),
+                };
+                let _ = RegisterClassExW(&wcx);
+
+                let taskbar_created_msg = RegisterWindowMessageW(w!("TaskbarCreated"));
+
+                let ctx = Box::into_raw(Box::new(EventHostContext {
+                    proxy,
+                    taskbar_created_msg,
+                }));
+
+                let hwnd = match CreateWindowExW(
+                    WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                    class_name,
+                    w!("ArcPaperEventHostWindow"),
+                    WS_POPUP,
+                    0,
+                    0,
+                    0,
+                    0,
+                    None,
+                    None,
+                    Some(hinst),
+                    Some(ctx as *const _ as *const std::ffi::c_void),
+                ) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        drop(Box::from_raw(ctx));
+                        return Err(format!("CreateWindowExW failed: {e}"));
+                    }
+                };
+
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, ctx as isize);
+
+                Ok(Self { hwnd, ctx })
+            }
+        }
+    }
+
+    impl Drop for ArcPaperEventHost {
+        fn drop(&mut self) {
+            unsafe {
+                if !self.hwnd.0.is_null() {
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        DestroyWindow, SetWindowLongPtrW,
+                    };
+                    SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
+                    let _ = DestroyWindow(self.hwnd);
+                    self.hwnd = HWND::default();
+                }
+                if !self.ctx.is_null() {
+                    drop(Box::from_raw(self.ctx));
+                    self.ctx = std::ptr::null_mut();
+                }
+            }
+        }
     }
 
     fn log_fps_limit(target_fps: Option<u32>) {
@@ -48,49 +197,99 @@ mod windows_app {
         }
     }
 
-    fn apply_player_settings(player: &ArcPlayer, state: &AppConfig) {
-        let _ = player.set_speed(state.speed);
-        let _ = player.set_brightness(state.brightness);
-        let _ = player.set_fit(&state.fit_mode);
-        log_fps_limit(state.target_fps);
-        let _ = player.apply_fps_limit(state.target_fps);
+    fn compute_effective_paused_map(
+        monitors: &[MonitorInfo],
+        config: &AppConfig,
+        coverage_map: &BTreeMap<MonitorId, bool>,
+    ) -> BTreeMap<MonitorId, bool> {
+        let mut map = BTreeMap::new();
+        for mon in monitors {
+            let covered = coverage_map.get(&mon.id).copied().unwrap_or(false);
+            let resolved = config.resolve_for_monitor(&mon.id);
+            let effective = resolve_effective_pause(covered, resolved.is_manually_paused);
+            map.insert(mon.id.clone(), effective);
+        }
+        map
     }
 
-    fn activate_wallpaper(
-        video_path: &Path,
-        video_name: String,
-        arc_player: Option<&ArcPlayer>,
+    fn collect_native_fps(
+        manager: &WallpaperManager,
+        monitors: &[MonitorInfo],
+        fallback_fps: u32,
+    ) -> (BTreeMap<MonitorId, u32>, u32) {
+        let mut fps_map = BTreeMap::new();
+        let mut max_fps = fallback_fps;
+        for mon in monitors {
+            if let Some(fps) = manager.native_fps_for_monitor(&mon.id) {
+                fps_map.insert(mon.id.clone(), fps);
+                if fps > max_fps {
+                    max_fps = fps;
+                }
+            } else {
+                fps_map.insert(mon.id.clone(), fallback_fps);
+            }
+        }
+        (fps_map, max_fps)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_topology_change_if_needed(
+        current_monitors: &mut Vec<MonitorInfo>,
+        monitors_snapshot: &Arc<RwLock<Vec<MonitorInfo>>>,
+        manager: &mut Option<WallpaperManager>,
+        workerw_hwnd: HWND,
         wp_state: &Rc<RefCell<AppConfig>>,
-        current_native_fps: &mut u32,
-        is_auto_paused: &mut bool,
-        config_path: &Path,
+        current_coverage_map: &BTreeMap<MonitorId, bool>,
+        saved_wallpapers_dir: &Path,
+        tray_icon: &tray_icon::TrayIcon,
+        controls: &mut TrayControls,
     ) {
-        if let Some(player) = arc_player {
-            if let Err(e) = player.load_file(video_path) {
-                log_with_level(
-                    LogLevel::Error,
-                    &format!("[ArcPaper] Error loading video: {}", e),
+        let next_monitors = enumerate_monitors();
+        let diff = diff_topologies(current_monitors, &next_monitors);
+        let monitor_count_mismatch = manager
+            .as_ref()
+            .map(|m| m.monitor_count() != next_monitors.len())
+            .unwrap_or(false);
+
+        if diff.has_changes() || monitor_count_mismatch {
+            log_msg(&format!(
+                "[ArcPaper] Display topology changed: added={}, removed={}, changed={}, unchanged={}. Updating layout...",
+                diff.added.len(),
+                diff.removed.len(),
+                diff.changed.len(),
+                diff.unchanged.len()
+            ));
+            *current_monitors = next_monitors.clone();
+            if let Ok(mut snap) = monitors_snapshot.write() {
+                *snap = next_monitors;
+            }
+            let effective_paused = compute_effective_paused_map(
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+            );
+            if let Some(mgr) = manager.as_mut() {
+                mgr.apply_topology_and_config(
+                    workerw_hwnd,
+                    current_monitors,
+                    &wp_state.borrow(),
+                    &effective_paused,
+                    saved_wallpapers_dir,
                 );
             }
-            if let Some(fps) = player.detect_native_fps() {
-                *current_native_fps = fps.round() as u32;
-            }
-        }
-
-        let mut state = wp_state.borrow_mut();
-        state.active_video = Some(video_name);
-        state.is_manually_paused = false;
-        *is_auto_paused = false;
-        if let Some(target) = state.target_fps
-            && target >= *current_native_fps
-        {
-            state.target_fps = None;
-        }
-        save_config(config_path, &state);
-
-        if let Some(player) = arc_player {
-            apply_player_settings(player, &state);
-            let _ = player.set_pause(false);
+            let (fps_map, global_fps) = if let Some(mgr) = manager.as_ref() {
+                collect_native_fps(mgr, current_monitors, 60)
+            } else {
+                (BTreeMap::new(), 60)
+            };
+            *controls = rebuild_tray(
+                tray_icon,
+                saved_wallpapers_dir,
+                &wp_state.borrow(),
+                current_monitors,
+                &fps_map,
+                global_fps,
+            );
         }
     }
 
@@ -122,8 +321,6 @@ mod windows_app {
         }));
 
         log_msg("[ArcPaper] Starting ArcPaper Native Wallpaper Engine");
-        let (screen_w, screen_h) =
-            unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
         unsafe {
             use windows::Win32::System::Threading::{
                 BELOW_NORMAL_PRIORITY_CLASS, GetCurrentProcess, SetPriorityClass,
@@ -133,33 +330,24 @@ mod windows_app {
 
         let saved_wallpapers_dir = get_saved_wallpapers_dir();
         let config_path = get_config_path();
-        let target_wid = workerw::attach_and_configure_desktop_surface(screen_w, screen_h);
-        let arc_player = if !target_wid.0.is_null() {
-            ArcPlayer::new(target_wid, screen_w as u32, screen_h as u32)
-                .map_err(|e| {
-                    log_with_level(LogLevel::Error, &format!("[ArcPaper] Init error: {e}"))
-                })
-                .ok()
-        } else {
-            log_msg("[ArcPaper] Target desktop handle null; running without active renderer.");
-            None
+        let mut workerw_hwnd = workerw::attach_virtual_desktop_surface();
+        let mut current_monitors = enumerate_monitors();
+        let monitors_snapshot = Arc::new(RwLock::new(current_monitors.clone()));
+
+        let mut manager = match WallpaperManager::new(workerw_hwnd) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                log_with_level(
+                    LogLevel::Error,
+                    &format!("[ArcPaper] Init WallpaperManager error: {e}"),
+                );
+                None
+            }
         };
 
         let wp_state: Rc<RefCell<AppConfig>> = Rc::new(RefCell::new(load_config(&config_path)));
-        let mut current_native_fps = 60u32;
-
-        let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-        let (tray_icon, mut controls) = build_initial_tray_icon(
-            &saved_wallpapers_dir,
-            &wp_state.borrow(),
-            current_native_fps,
-        );
-
-        let proxy_tray = event_loop.create_proxy();
-        let proxy_tray_cb = proxy_tray.clone();
-        MenuEvent::set_event_handler(Some(move |event| {
-            let _ = proxy_tray_cb.send_event(UserEvent::TrayMenu(event));
-        }));
+        let mut current_coverage_map: BTreeMap<MonitorId, bool> = BTreeMap::new();
+        let mut display_debounce = DisplayDebounce::new(Duration::from_millis(200));
 
         let valid_video = wp_state
             .borrow()
@@ -173,199 +361,586 @@ mod windows_app {
             Some(first)
         });
 
-        if let Some(name) = video_to_play {
-            let video_path = saved_wallpapers_dir.join(&name);
-            if let Some(ref player) = arc_player {
-                if let Err(e) = player.load_file(&video_path) {
-                    log_with_level(LogLevel::Error, &format!("[ArcPaper] load_file error: {e}"));
-                }
-                if let Some(fps) = player.detect_native_fps() {
-                    current_native_fps = fps.round() as u32;
-                }
-                let state = wp_state.borrow();
-                apply_player_settings(player, &state);
-                if state.is_manually_paused {
-                    let _ = player.set_pause(true);
-                }
-            }
-            controls = rebuild_tray(
-                &tray_icon,
-                &saved_wallpapers_dir,
+        if let Some(ref name) = video_to_play {
+            log_msg(&format!("[ArcPaper] Active startup wallpaper: {}", name));
+        }
+
+        let effective_paused = compute_effective_paused_map(
+            &current_monitors,
+            &wp_state.borrow(),
+            &current_coverage_map,
+        );
+
+        if let Some(ref mut mgr) = manager {
+            mgr.apply_topology_and_config(
+                workerw_hwnd,
+                &current_monitors,
                 &wp_state.borrow(),
-                current_native_fps,
+                &effective_paused,
+                &saved_wallpapers_dir,
             );
         }
 
+        let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+
+        let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+            collect_native_fps(mgr, &current_monitors, 60)
+        } else {
+            (BTreeMap::new(), 60)
+        };
+
+        let (mut tray_icon, mut controls) = build_initial_tray_icon(
+            &saved_wallpapers_dir,
+            &wp_state.borrow(),
+            &current_monitors,
+            &fps_map,
+            global_fps,
+        );
+
+        let proxy_tray = event_loop.create_proxy();
+        let proxy_tray_cb = proxy_tray.clone();
+        MenuEvent::set_event_handler(Some(move |event| {
+            let _ = proxy_tray_cb.send_event(UserEvent::TrayMenu(event));
+        }));
+
+        let proxy_event_host = event_loop.create_proxy();
+        let event_host = match ArcPaperEventHost::new(proxy_event_host) {
+            Ok(host) => Some(host),
+            Err(e) => {
+                log_with_level(
+                    LogLevel::Error,
+                    &format!("[ArcPaper] Failed to initialize ArcPaperEventHost: {e}"),
+                );
+                None
+            }
+        };
+
         let proxy_autopause = event_loop.create_proxy();
-        spawn_monitor_thread(move |is_covered| {
-            let _ = proxy_autopause.send_event(UserEvent::AutoPause(is_covered));
+        spawn_multi_monitor_thread(Arc::clone(&monitors_snapshot), move |coverage| {
+            let _ = proxy_autopause.send_event(UserEvent::AutoPauseMap(coverage));
         });
 
-        let mut is_auto_paused = false;
-        let mut last_known_is_covered = false;
         event_loop.run(move |event, _, control_flow| {
-            *control_flow =
-                ControlFlow::WaitUntil(std::time::Instant::now() + Duration::from_millis(200));
+            let now = std::time::Instant::now();
+            let default_deadline = now + Duration::from_millis(200);
+            let next_wake = match display_debounce.next_deadline() {
+                Some(d) if d < default_deadline => d,
+                _ => default_deadline,
+            };
+            *control_flow = ControlFlow::WaitUntil(next_wake);
+
             let _keep_tray = &tray_icon;
+            let _keep_event_host = &event_host;
 
             while tray_icon::TrayIconEvent::receiver().try_recv().is_ok() {}
-            if let Some(ref player) = arc_player {
-                player.drain_events();
+
+            if display_debounce.poll_ready(now) {
+                handle_topology_change_if_needed(
+                    &mut current_monitors,
+                    &monitors_snapshot,
+                    &mut manager,
+                    workerw_hwnd,
+                    &wp_state,
+                    &current_coverage_map,
+                    &saved_wallpapers_dir,
+                    &tray_icon,
+                    &mut controls,
+                );
             }
 
             match event {
-                Event::UserEvent(UserEvent::AutoPause(is_covered)) => {
-                    last_known_is_covered = is_covered;
-                    let state = wp_state.borrow();
-                    let (effective_paused, next_auto_paused, log_line) =
-                        compute_autopause_transition(
-                            is_covered,
-                            state.is_manually_paused,
-                            is_auto_paused,
-                        );
-                    is_auto_paused = next_auto_paused;
-                    if let Some(ref player) = arc_player {
-                        let _ = player.set_pause(effective_paused);
+                Event::UserEvent(UserEvent::AutoPauseMap(coverage_map)) => {
+                    current_coverage_map = coverage_map;
+                    let effective_paused = compute_effective_paused_map(
+                        &current_monitors,
+                        &wp_state.borrow(),
+                        &current_coverage_map,
+                    );
+                    if let Some(ref mut mgr) = manager {
+                        mgr.update_pause_states(&wp_state.borrow(), &effective_paused);
                     }
-                    if let Some(msg) = log_line {
-                        log_msg(msg);
-                        if is_covered {
-                            AutoPause::trim_working_set();
-                        }
+                    let all_paused =
+                        !effective_paused.is_empty() && effective_paused.values().all(|&p| p);
+                    if all_paused {
+                        AutoPause::trim_working_set();
                     }
                 }
 
-                Event::UserEvent(UserEvent::TrayMenu(menu_event)) => {
-                    let event_id = menu_event.id.clone();
+                Event::UserEvent(UserEvent::DisplayTopologyDirty) => {
+                    display_debounce.trigger_at(std::time::Instant::now());
+                }
 
-                    if event_id == controls.upload_id {
-                        if let Some(source_path) = rfd::FileDialog::new()
-                            .add_filter("MP4 Video (*.mp4)", &["mp4"])
-                            .set_title("Select MP4 Video File")
-                            .pick_file()
-                            && let Some(file_name) =
-                                source_path.file_name().and_then(|n| n.to_str())
-                        {
-                            let dest_path = saved_wallpapers_dir.join(file_name);
-                            if let Err(e) = std::fs::copy(&source_path, &dest_path) {
-                                log_with_level(
-                                    LogLevel::Error,
-                                    &format!("[ArcPaper] Copy failed: {e:?}"),
+                Event::UserEvent(UserEvent::ExplorerRestarted) => {
+                    log_msg(
+                        "[ArcPaper] Explorer restart detected (TaskbarCreated). Reattaching to WorkerW...",
+                    );
+                    let new_workerw = workerw::attach_virtual_desktop_surface();
+                    workerw_hwnd = new_workerw;
+                    let next_monitors = enumerate_monitors();
+                    current_monitors = next_monitors.clone();
+                    if let Ok(mut snap) = monitors_snapshot.write() {
+                        *snap = next_monitors.clone();
+                    }
+                    if let Some(ref mut mgr) = manager {
+                        mgr.reparent_to_workerw(new_workerw, &current_monitors);
+                        let effective_paused = compute_effective_paused_map(
+                            &current_monitors,
+                            &wp_state.borrow(),
+                            &current_coverage_map,
+                        );
+                        mgr.apply_topology_and_config(
+                            new_workerw,
+                            &current_monitors,
+                            &wp_state.borrow(),
+                            &effective_paused,
+                            &saved_wallpapers_dir,
+                        );
+                    }
+                    let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+                        collect_native_fps(mgr, &current_monitors, 60)
+                    } else {
+                        (BTreeMap::new(), 60)
+                    };
+                    let (new_icon, new_ctrl) = build_initial_tray_icon(
+                        &saved_wallpapers_dir,
+                        &wp_state.borrow(),
+                        &current_monitors,
+                        &fps_map,
+                        global_fps,
+                    );
+                    tray_icon = new_icon;
+                    controls = new_ctrl;
+                    log_msg("[ArcPaper] Recovery after Explorer restart complete.");
+                }
+
+                Event::UserEvent(UserEvent::TrayMenu(menu_event)) => {
+                    if let Some(action) = controls.actions.get(&menu_event.id).cloned() {
+                        match action {
+                            TrayAction::UploadWallpaper(target) => {
+                                if let Some(source_path) = rfd::FileDialog::new()
+                                    .add_filter("MP4 Video (*.mp4)", &["mp4"])
+                                    .set_title("Select MP4 Video File")
+                                    .pick_file()
+                                    && let Some(file_name) =
+                                        source_path.file_name().and_then(|n| n.to_str())
+                                {
+                                    let dest_path = saved_wallpapers_dir.join(file_name);
+                                    if let Err(e) = std::fs::copy(&source_path, &dest_path) {
+                                        log_with_level(
+                                            LogLevel::Error,
+                                            &format!("[ArcPaper] Copy failed: {e:?}"),
+                                        );
+                                    } else {
+                                        let mut state = wp_state.borrow_mut();
+                                        match &target {
+                                            Some(mid) => {
+                                                let entry = state
+                                                    .monitors
+                                                    .entry(mid.as_str().to_string())
+                                                    .or_default();
+                                                entry.active_video = Some(file_name.to_string());
+                                                entry.is_manually_paused = Some(false);
+                                            }
+                                            None => {
+                                                state.active_video = Some(file_name.to_string());
+                                                state.is_manually_paused = false;
+                                            }
+                                        }
+                                        save_config(&config_path, &state);
+                                        drop(state);
+
+                                        let effective_paused = compute_effective_paused_map(
+                                            &current_monitors,
+                                            &wp_state.borrow(),
+                                            &current_coverage_map,
+                                        );
+                                        if let Some(ref mut mgr) = manager {
+                                            mgr.apply_topology_and_config(
+                                                workerw_hwnd,
+                                                &current_monitors,
+                                                &wp_state.borrow(),
+                                                &effective_paused,
+                                                &saved_wallpapers_dir,
+                                            );
+                                        }
+                                        let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+                                            collect_native_fps(mgr, &current_monitors, 60)
+                                        } else {
+                                            (BTreeMap::new(), 60)
+                                        };
+                                        controls = rebuild_tray(
+                                            &tray_icon,
+                                            &saved_wallpapers_dir,
+                                            &wp_state.borrow(),
+                                            &current_monitors,
+                                            &fps_map,
+                                            global_fps,
+                                        );
+                                    }
+                                }
+                            }
+
+                            TrayAction::SelectWallpaper { monitor_id, file } => {
+                                let mut state = wp_state.borrow_mut();
+                                match &monitor_id {
+                                    Some(mid) => {
+                                        let entry = state
+                                            .monitors
+                                            .entry(mid.as_str().to_string())
+                                            .or_default();
+                                        entry.active_video = Some(file);
+                                        entry.is_manually_paused = Some(false);
+                                    }
+                                    None => {
+                                        state.active_video = Some(file);
+                                        state.is_manually_paused = false;
+                                    }
+                                }
+                                save_config(&config_path, &state);
+                                drop(state);
+
+                                let effective_paused = compute_effective_paused_map(
+                                    &current_monitors,
+                                    &wp_state.borrow(),
+                                    &current_coverage_map,
                                 );
-                            } else {
-                                activate_wallpaper(
-                                    &dest_path,
-                                    file_name.to_string(),
-                                    arc_player.as_ref(),
-                                    &wp_state,
-                                    &mut current_native_fps,
-                                    &mut is_auto_paused,
-                                    &config_path,
-                                );
+                                if let Some(ref mut mgr) = manager {
+                                    mgr.apply_topology_and_config(
+                                        workerw_hwnd,
+                                        &current_monitors,
+                                        &wp_state.borrow(),
+                                        &effective_paused,
+                                        &saved_wallpapers_dir,
+                                    );
+                                }
+                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+                                    collect_native_fps(mgr, &current_monitors, 60)
+                                } else {
+                                    (BTreeMap::new(), 60)
+                                };
                                 controls = rebuild_tray(
                                     &tray_icon,
                                     &saved_wallpapers_dir,
                                     &wp_state.borrow(),
-                                    current_native_fps,
+                                    &current_monitors,
+                                    &fps_map,
+                                    global_fps,
                                 );
                             }
+
+                            TrayAction::SetDisplayMode(new_mode) => {
+                                let mut state = wp_state.borrow_mut();
+                                state.display_mode = new_mode;
+                                save_config(&config_path, &state);
+                                drop(state);
+
+                                let effective_paused = compute_effective_paused_map(
+                                    &current_monitors,
+                                    &wp_state.borrow(),
+                                    &current_coverage_map,
+                                );
+                                if let Some(ref mut mgr) = manager {
+                                    mgr.apply_topology_and_config(
+                                        workerw_hwnd,
+                                        &current_monitors,
+                                        &wp_state.borrow(),
+                                        &effective_paused,
+                                        &saved_wallpapers_dir,
+                                    );
+                                }
+                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+                                    collect_native_fps(mgr, &current_monitors, 60)
+                                } else {
+                                    (BTreeMap::new(), 60)
+                                };
+                                controls = rebuild_tray(
+                                    &tray_icon,
+                                    &saved_wallpapers_dir,
+                                    &wp_state.borrow(),
+                                    &current_monitors,
+                                    &fps_map,
+                                    global_fps,
+                                );
+                            }
+
+                            TrayAction::TogglePause(target) => {
+                                let mut state = wp_state.borrow_mut();
+                                match &target {
+                                    Some(mid) => {
+                                        let currently_paused =
+                                            state.resolve_for_monitor(mid).is_manually_paused;
+                                        let entry = state
+                                            .monitors
+                                            .entry(mid.as_str().to_string())
+                                            .or_default();
+                                        entry.is_manually_paused = Some(!currently_paused);
+                                    }
+                                    None => {
+                                        let next = !state.is_manually_paused;
+                                        state.is_manually_paused = next;
+                                        for ov in state.monitors.values_mut() {
+                                            ov.is_manually_paused = None;
+                                        }
+                                    }
+                                }
+                                save_config(&config_path, &state);
+                                drop(state);
+
+                                let effective_paused = compute_effective_paused_map(
+                                    &current_monitors,
+                                    &wp_state.borrow(),
+                                    &current_coverage_map,
+                                );
+                                if let Some(ref mut mgr) = manager {
+                                    mgr.update_pause_states(&wp_state.borrow(), &effective_paused);
+                                }
+                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+                                    collect_native_fps(mgr, &current_monitors, 60)
+                                } else {
+                                    (BTreeMap::new(), 60)
+                                };
+                                controls = rebuild_tray(
+                                    &tray_icon,
+                                    &saved_wallpapers_dir,
+                                    &wp_state.borrow(),
+                                    &current_monitors,
+                                    &fps_map,
+                                    global_fps,
+                                );
+                            }
+
+                            TrayAction::SetFit { monitor_id, fit } => {
+                                let mut state = wp_state.borrow_mut();
+                                match &monitor_id {
+                                    Some(mid) => {
+                                        let ov = state
+                                            .monitors
+                                            .entry(mid.as_str().to_string())
+                                            .or_default();
+                                        ov.fit_mode = Some(fit.to_string());
+                                    }
+                                    None => {
+                                        state.fit_mode = fit.to_string();
+                                    }
+                                }
+                                save_config(&config_path, &state);
+                                drop(state);
+
+                                let effective_paused = compute_effective_paused_map(
+                                    &current_monitors,
+                                    &wp_state.borrow(),
+                                    &current_coverage_map,
+                                );
+                                if let Some(ref mut mgr) = manager {
+                                    mgr.apply_topology_and_config(
+                                        workerw_hwnd,
+                                        &current_monitors,
+                                        &wp_state.borrow(),
+                                        &effective_paused,
+                                        &saved_wallpapers_dir,
+                                    );
+                                }
+                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+                                    collect_native_fps(mgr, &current_monitors, 60)
+                                } else {
+                                    (BTreeMap::new(), 60)
+                                };
+                                controls = rebuild_tray(
+                                    &tray_icon,
+                                    &saved_wallpapers_dir,
+                                    &wp_state.borrow(),
+                                    &current_monitors,
+                                    &fps_map,
+                                    global_fps,
+                                );
+                            }
+
+                            TrayAction::SetBrightness {
+                                monitor_id,
+                                brightness,
+                            } => {
+                                let mut state = wp_state.borrow_mut();
+                                match &monitor_id {
+                                    Some(mid) => {
+                                        let ov = state
+                                            .monitors
+                                            .entry(mid.as_str().to_string())
+                                            .or_default();
+                                        ov.brightness = Some(brightness);
+                                    }
+                                    None => {
+                                        state.brightness = brightness;
+                                    }
+                                }
+                                save_config(&config_path, &state);
+                                drop(state);
+
+                                let effective_paused = compute_effective_paused_map(
+                                    &current_monitors,
+                                    &wp_state.borrow(),
+                                    &current_coverage_map,
+                                );
+                                if let Some(ref mut mgr) = manager {
+                                    mgr.apply_topology_and_config(
+                                        workerw_hwnd,
+                                        &current_monitors,
+                                        &wp_state.borrow(),
+                                        &effective_paused,
+                                        &saved_wallpapers_dir,
+                                    );
+                                }
+                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+                                    collect_native_fps(mgr, &current_monitors, 60)
+                                } else {
+                                    (BTreeMap::new(), 60)
+                                };
+                                controls = rebuild_tray(
+                                    &tray_icon,
+                                    &saved_wallpapers_dir,
+                                    &wp_state.borrow(),
+                                    &current_monitors,
+                                    &fps_map,
+                                    global_fps,
+                                );
+                            }
+
+                            TrayAction::SetSpeed { monitor_id, speed } => {
+                                let mut state = wp_state.borrow_mut();
+                                match &monitor_id {
+                                    Some(mid) => {
+                                        let ov = state
+                                            .monitors
+                                            .entry(mid.as_str().to_string())
+                                            .or_default();
+                                        ov.speed = Some(speed);
+                                    }
+                                    None => {
+                                        state.speed = speed;
+                                    }
+                                }
+                                save_config(&config_path, &state);
+                                drop(state);
+
+                                let effective_paused = compute_effective_paused_map(
+                                    &current_monitors,
+                                    &wp_state.borrow(),
+                                    &current_coverage_map,
+                                );
+                                if let Some(ref mut mgr) = manager {
+                                    mgr.apply_topology_and_config(
+                                        workerw_hwnd,
+                                        &current_monitors,
+                                        &wp_state.borrow(),
+                                        &effective_paused,
+                                        &saved_wallpapers_dir,
+                                    );
+                                }
+                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+                                    collect_native_fps(mgr, &current_monitors, 60)
+                                } else {
+                                    (BTreeMap::new(), 60)
+                                };
+                                controls = rebuild_tray(
+                                    &tray_icon,
+                                    &saved_wallpapers_dir,
+                                    &wp_state.borrow(),
+                                    &current_monitors,
+                                    &fps_map,
+                                    global_fps,
+                                );
+                            }
+
+                            TrayAction::SetTargetFps {
+                                monitor_id,
+                                target_fps,
+                            } => {
+                                let mut state = wp_state.borrow_mut();
+                                match &monitor_id {
+                                    Some(mid) => {
+                                        let ov = state
+                                            .monitors
+                                            .entry(mid.as_str().to_string())
+                                            .or_default();
+                                        ov.target_fps = target_fps;
+                                    }
+                                    None => {
+                                        state.target_fps = target_fps;
+                                    }
+                                }
+                                log_fps_limit(target_fps);
+                                save_config(&config_path, &state);
+                                drop(state);
+
+                                let effective_paused = compute_effective_paused_map(
+                                    &current_monitors,
+                                    &wp_state.borrow(),
+                                    &current_coverage_map,
+                                );
+                                if let Some(ref mut mgr) = manager {
+                                    mgr.apply_topology_and_config(
+                                        workerw_hwnd,
+                                        &current_monitors,
+                                        &wp_state.borrow(),
+                                        &effective_paused,
+                                        &saved_wallpapers_dir,
+                                    );
+                                }
+                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+                                    collect_native_fps(mgr, &current_monitors, 60)
+                                } else {
+                                    (BTreeMap::new(), 60)
+                                };
+                                controls = rebuild_tray(
+                                    &tray_icon,
+                                    &saved_wallpapers_dir,
+                                    &wp_state.borrow(),
+                                    &current_monitors,
+                                    &fps_map,
+                                    global_fps,
+                                );
+                            }
+
+                            TrayAction::CheckUpdates => {
+                                std::thread::spawn(check_for_updates);
+                            }
+
+                            TrayAction::ToggleAutostart => {
+                                let res = if is_autostart_enabled() {
+                                    disable_autostart()
+                                } else {
+                                    enable_autostart()
+                                };
+                                if let Err(e) = res {
+                                    log_with_level(
+                                        LogLevel::Error,
+                                        &format!("[ArcPaper] Auto-start error: {e:?}"),
+                                    );
+                                }
+                                controls.autostart_item.set_checked(is_autostart_enabled());
+                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
+                                    collect_native_fps(mgr, &current_monitors, 60)
+                                } else {
+                                    (BTreeMap::new(), 60)
+                                };
+                                controls = rebuild_tray(
+                                    &tray_icon,
+                                    &saved_wallpapers_dir,
+                                    &wp_state.borrow(),
+                                    &current_monitors,
+                                    &fps_map,
+                                    global_fps,
+                                );
+                            }
+
+                            TrayAction::Uninstall => {
+                                perform_uninstall();
+                            }
+
+                            TrayAction::Exit => {
+                                log_msg("[ArcPaper] Exit requested. Shutting down cleanly...");
+                                *control_flow = ControlFlow::Exit;
+                            }
                         }
-                    } else if event_id == controls.pause_resume_id {
-                        let mut state = wp_state.borrow_mut();
-                        state.is_manually_paused = !state.is_manually_paused;
-                        let (effective_paused, next_auto_paused) = apply_manual_pause_toggle(
-                            last_known_is_covered,
-                            state.is_manually_paused,
-                        );
-                        is_auto_paused = next_auto_paused;
-                        if let Some(ref player) = arc_player {
-                            let _ = player.set_pause(effective_paused);
-                        }
-                        save_config(&config_path, &state);
-                        controls = rebuild_tray(
-                            &tray_icon,
-                            &saved_wallpapers_dir,
-                            &state,
-                            current_native_fps,
-                        );
-                    } else if let Some(&speed) = controls.speed_map.get(&event_id) {
-                        if let Some(ref player) = arc_player {
-                            let _ = player.set_speed(speed);
-                        }
-                        let mut state = wp_state.borrow_mut();
-                        state.speed = speed;
-                        save_config(&config_path, &state);
-                    } else if let Some(&fit) = controls.fit_map.get(&event_id) {
-                        if let Some(ref player) = arc_player {
-                            let _ = player.set_fit(fit);
-                        }
-                        let mut state = wp_state.borrow_mut();
-                        state.fit_mode = fit.to_string();
-                        save_config(&config_path, &state);
-                    } else if let Some(&brightness) = controls.brightness_map.get(&event_id) {
-                        if let Some(ref player) = arc_player {
-                            let _ = player.set_brightness(brightness);
-                        }
-                        let mut state = wp_state.borrow_mut();
-                        state.brightness = brightness;
-                        save_config(&config_path, &state);
-                    } else if let Some(selected) = controls.wallpaper_map.get(&event_id).cloned() {
-                        let full_path = saved_wallpapers_dir.join(&selected);
-                        activate_wallpaper(
-                            &full_path,
-                            selected,
-                            arc_player.as_ref(),
-                            &wp_state,
-                            &mut current_native_fps,
-                            &mut is_auto_paused,
-                            &config_path,
-                        );
-                        controls = rebuild_tray(
-                            &tray_icon,
-                            &saved_wallpapers_dir,
-                            &wp_state.borrow(),
-                            current_native_fps,
-                        );
-                    } else if let Some(&target_fps_opt) = controls.fps_map.get(&event_id) {
-                        let mut state = wp_state.borrow_mut();
-                        state.target_fps = target_fps_opt;
-                        save_config(&config_path, &state);
-                        if let Some(ref player) = arc_player {
-                            log_fps_limit(target_fps_opt);
-                            let _ = player.apply_fps_limit(target_fps_opt);
-                        }
-                        controls = rebuild_tray(
-                            &tray_icon,
-                            &saved_wallpapers_dir,
-                            &state,
-                            current_native_fps,
-                        );
-                    } else if event_id == controls.check_updates_id {
-                        std::thread::spawn(check_for_updates);
-                    } else if event_id == controls.autostart_id {
-                        let res = if is_autostart_enabled() {
-                            disable_autostart()
-                        } else {
-                            enable_autostart()
-                        };
-                        if let Err(e) = res {
-                            log_with_level(
-                                LogLevel::Error,
-                                &format!("[ArcPaper] Auto-start error: {e:?}"),
-                            );
-                        }
-                        controls.autostart_item.set_checked(is_autostart_enabled());
-                        controls = rebuild_tray(
-                            &tray_icon,
-                            &saved_wallpapers_dir,
-                            &wp_state.borrow(),
-                            current_native_fps,
-                        );
-                    } else if event_id == controls.uninstall_id {
-                        perform_uninstall();
-                    } else if event_id == controls.exit_id {
-                        log_msg("[ArcPaper] Exit requested. Shutting down cleanly...");
-                        *control_flow = ControlFlow::Exit;
                     }
                 }
 
@@ -373,8 +948,22 @@ mod windows_app {
                     while let Ok(menu_event) = MenuEvent::receiver().try_recv() {
                         let _ = proxy_tray.send_event(UserEvent::TrayMenu(menu_event));
                     }
-                    if let Some(ref player) = arc_player {
-                        player.drain_events();
+                    if let Some(ref mut mgr) = manager {
+                        mgr.poll_recovery();
+                    }
+                    let now = std::time::Instant::now();
+                    if display_debounce.poll_ready(now) {
+                        handle_topology_change_if_needed(
+                            &mut current_monitors,
+                            &monitors_snapshot,
+                            &mut manager,
+                            workerw_hwnd,
+                            &wp_state,
+                            &current_coverage_map,
+                            &saved_wallpapers_dir,
+                            &tray_icon,
+                            &mut controls,
+                        );
                     }
                 }
 
