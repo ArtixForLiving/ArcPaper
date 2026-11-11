@@ -332,7 +332,10 @@ impl Presenter {
 
 /// Returns `true` when `hr` represents a recoverable DXGI GPU device loss or reset.
 pub fn is_device_lost_hresult(hr: windows::core::HRESULT) -> bool {
-    hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET
+    hr == DXGI_ERROR_DEVICE_REMOVED
+        || hr == DXGI_ERROR_DEVICE_RESET
+        || hr == DXGI_ERROR_DEVICE_HUNG
+        || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR
 }
 
 /// Returns `true` when `err` represents a DXGI device removal or reset error.
@@ -348,6 +351,8 @@ mod tests {
     fn test_is_device_lost_hresult_classification() {
         assert!(is_device_lost_hresult(DXGI_ERROR_DEVICE_REMOVED));
         assert!(is_device_lost_hresult(DXGI_ERROR_DEVICE_RESET));
+        assert!(is_device_lost_hresult(DXGI_ERROR_DEVICE_HUNG));
+        assert!(is_device_lost_hresult(DXGI_ERROR_DRIVER_INTERNAL_ERROR));
         assert!(!is_device_lost_hresult(E_FAIL));
         assert!(!is_device_lost_hresult(windows::Win32::Foundation::S_OK));
     }

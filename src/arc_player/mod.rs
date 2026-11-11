@@ -98,6 +98,16 @@ impl RecoveryTracker {
     }
 }
 
+/// Resets an exhausted recovery tracker and requests pipeline rebuild when a new video loads
+/// while no presenter is currently active.
+pub fn prepare_recovery_on_video_load(has_presenter: bool, recovery: &mut RecoveryTracker) -> bool {
+    if !has_presenter || recovery.is_exhausted() {
+        recovery.reset();
+        return !has_presenter;
+    }
+    false
+}
+
 /// Executes bounded recovery retries using `RecoveryTracker`, sleeping between attempts.
 pub fn run_recovery_with<T, E, S, R>(
     tracker: &mut RecoveryTracker,
@@ -392,6 +402,10 @@ impl ArcPlayer {
                             loop_ctrl = Some(LoopController::new(frame_count));
                             decoder = dec;
                             demuxer = Some(d);
+
+                            if prepare_recovery_on_video_load(presenter.is_some(), &mut recovery) {
+                                needs_device_recovery = true;
+                            }
 
                             if first_video_load_time.is_none() {
                                 first_video_load_time = Some(Instant::now());
@@ -861,5 +875,22 @@ mod tests {
         assert_eq!(fail_res, Err(Some("permanent gpu loss")));
         assert_eq!(calls2, 3);
         assert!(tracker2.is_exhausted());
+    }
+
+    #[test]
+    fn test_video_load_resets_exhausted_recovery_when_presenter_missing() {
+        let mut healthy = RecoveryTracker::new();
+        assert!(!prepare_recovery_on_video_load(true, &mut healthy));
+        assert!(!healthy.is_exhausted());
+
+        let mut exhausted = RecoveryTracker::new();
+        for _ in 0..4 {
+            let _ = exhausted.next_backoff();
+        }
+        assert!(exhausted.is_exhausted());
+
+        assert!(prepare_recovery_on_video_load(false, &mut exhausted));
+        assert!(!exhausted.is_exhausted());
+        assert_eq!(exhausted.attempts(), 0);
     }
 }
