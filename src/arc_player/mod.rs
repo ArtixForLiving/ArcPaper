@@ -1316,25 +1316,50 @@ impl SharedVideoSession {
                                                 )
                                             });
 
-                                            if let Err(e) = render_res
-                                                && (presenter::is_device_lost_error(&e)
+                                            if let Err(e) = render_res {
+                                                log_throttled(
+                                                    "session_render_err",
+                                                    Duration::from_secs(5),
+                                                    LogLevel::Error,
+                                                    &format!(
+                                                        "[ArcPaper] Shared session render error ({:?}): {}",
+                                                        e.code(),
+                                                        e
+                                                    ),
+                                                );
+                                                if presenter::is_device_lost_error(&e)
                                                     || presenter::is_device_lost_hresult(
                                                         gfx.device_removed_reason(),
-                                                    ))
+                                                    )
+                                                {
+                                                    recovery
+                                                        .lock()
+                                                        .unwrap()
+                                                        .flag_fault(session_epoch);
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        if let Err(e) = swap.present(vsync, do_not_wait) {
+                                            log_throttled(
+                                                "session_present_err",
+                                                Duration::from_secs(5),
+                                                LogLevel::Error,
+                                                &format!(
+                                                    "[ArcPaper] Shared session present error ({:?}): {}",
+                                                    e.code(),
+                                                    e
+                                                ),
+                                            );
+                                            if presenter::is_device_lost_error(&e)
+                                                || presenter::is_device_lost_hresult(
+                                                    gfx.device_removed_reason(),
+                                                )
                                             {
                                                 recovery.lock().unwrap().flag_fault(session_epoch);
                                                 break;
                                             }
-                                        }
-
-                                        if let Err(e) = swap.present(vsync, do_not_wait)
-                                            && (presenter::is_device_lost_error(&e)
-                                                || presenter::is_device_lost_hresult(
-                                                    gfx.device_removed_reason(),
-                                                ))
-                                        {
-                                            recovery.lock().unwrap().flag_fault(session_epoch);
-                                            break;
                                         }
                                     }
                                 }
@@ -1636,21 +1661,8 @@ impl WallpaperManager {
         let active_paths: HashSet<PathBuf> =
             plan.sessions.iter().map(|s| s.video_path.clone()).collect();
 
-        // Stop and remove sessions no longer in plan
-        let mut stopped_sessions = Vec::new();
-        self.sessions.retain(|path, session| {
-            if !active_paths.contains(path) {
-                stopped_sessions.push(session.shared_state.clone());
-                false
-            } else {
-                true
-            }
-        });
-        for state in stopped_sessions {
-            let mut s = state.0.lock().unwrap();
-            s.is_running = false;
-            state.1.notify_all();
-        }
+        // Stop and remove sessions no longer in plan (dropping the session invokes Drop -> stop())
+        self.sessions.retain(|path, _| active_paths.contains(path));
 
         // Update existing sessions or spawn new ones
         for assignment in &plan.sessions {

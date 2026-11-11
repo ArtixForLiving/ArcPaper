@@ -369,6 +369,9 @@ where
     });
 }
 
+/// Thread name for the multi-monitor auto-pause monitor.
+pub const AUTOPAUSE_THREAD_NAME: &str = "ArcPaper-AutoPauseMonitor";
+
 /// Spawns a background multi-monitor auto-pause monitor thread (1000ms polling interval).
 ///
 /// Calls `on_cover_change` whenever the per-monitor coverage state changes.
@@ -380,30 +383,43 @@ pub fn spawn_multi_monitor_thread<F>(
     F: Fn(BTreeMap<MonitorId, bool>) + Send + 'static,
 {
     let our_pid = std::process::id();
-    std::thread::spawn(move || {
-        let mut last_coverage: Option<BTreeMap<MonitorId, bool>> = None;
-        loop {
-            std::thread::sleep(Duration::from_millis(1000));
+    let spawn_res = std::thread::Builder::new()
+        .name(AUTOPAUSE_THREAD_NAME.into())
+        .spawn(move || {
+            let mut last_coverage: Option<BTreeMap<MonitorId, bool>> = None;
+            loop {
+                std::thread::sleep(Duration::from_millis(1000));
 
-            let monitors = match monitors_snapshot.read() {
-                Ok(guard) => guard.clone(),
-                Err(poisoned) => poisoned.into_inner().clone(),
-            };
+                let monitors = match monitors_snapshot.read() {
+                    Ok(guard) => guard.clone(),
+                    Err(poisoned) => poisoned.into_inner().clone(),
+                };
 
-            let observations = unsafe { collect_window_observations(&monitors, our_pid) };
-            let coverage = evaluate_monitor_coverage(&monitors, &observations);
+                let observations = unsafe { collect_window_observations(&monitors, our_pid) };
+                let coverage = evaluate_monitor_coverage(&monitors, &observations);
 
-            if last_coverage.as_ref() != Some(&coverage) {
-                last_coverage = Some(coverage.clone());
-                on_cover_change(coverage);
+                if last_coverage.as_ref() != Some(&coverage) {
+                    last_coverage = Some(coverage.clone());
+                    on_cover_change(coverage);
+                }
             }
-        }
-    });
+        });
+    if let Err(e) = spawn_res {
+        crate::app::log::log_with_level(
+            crate::app::log::LogLevel::Error,
+            &format!("[ArcPaper] Failed to spawn {AUTOPAUSE_THREAD_NAME} thread: {e}"),
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_autopause_thread_name_constant() {
+        assert_eq!(AUTOPAUSE_THREAD_NAME, "ArcPaper-AutoPauseMonitor");
+    }
 
     #[test]
     fn test_resolve_effective_pause_matrix_covered_x_manual() {

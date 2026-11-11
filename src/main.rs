@@ -232,6 +232,68 @@ mod windows_app {
         (fps_map, max_fps)
     }
 
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    pub(crate) enum ManagerSyncMode {
+        ApplyTopology,
+        PauseOnly,
+        RebuildTrayOnly,
+    }
+
+    impl ManagerSyncMode {
+        pub(crate) fn requires_topology_sync(&self) -> bool {
+            matches!(self, Self::ApplyTopology)
+        }
+
+        pub(crate) fn requires_manager_sync(&self) -> bool {
+            matches!(self, Self::ApplyTopology | Self::PauseOnly)
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn sync_manager_and_rebuild_tray(
+        manager: &mut Option<WallpaperManager>,
+        workerw_hwnd: HWND,
+        current_monitors: &[MonitorInfo],
+        config: &AppConfig,
+        current_coverage_map: &BTreeMap<MonitorId, bool>,
+        saved_wallpapers_dir: &Path,
+        tray_icon: &tray_icon::TrayIcon,
+        controls: &mut TrayControls,
+        sync_mode: ManagerSyncMode,
+    ) {
+        if sync_mode.requires_manager_sync() {
+            let effective_paused =
+                compute_effective_paused_map(current_monitors, config, current_coverage_map);
+            if let Some(mgr) = manager.as_mut() {
+                if sync_mode.requires_topology_sync() {
+                    mgr.apply_topology_and_config(
+                        workerw_hwnd,
+                        current_monitors,
+                        config,
+                        &effective_paused,
+                        saved_wallpapers_dir,
+                    );
+                } else {
+                    mgr.update_pause_states(config, &effective_paused);
+                }
+            }
+        }
+
+        let (fps_map, global_fps) = if let Some(mgr) = manager.as_ref() {
+            collect_native_fps(mgr, current_monitors, 60)
+        } else {
+            (BTreeMap::new(), 60)
+        };
+        *controls = rebuild_tray(
+            tray_icon,
+            saved_wallpapers_dir,
+            config,
+            current_monitors,
+            &fps_map,
+            global_fps,
+        );
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn handle_topology_change_if_needed(
         current_monitors: &mut Vec<MonitorInfo>,
@@ -263,32 +325,16 @@ mod windows_app {
             if let Ok(mut snap) = monitors_snapshot.write() {
                 *snap = next_monitors;
             }
-            let effective_paused = compute_effective_paused_map(
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
                 current_monitors,
                 &wp_state.borrow(),
                 current_coverage_map,
-            );
-            if let Some(mgr) = manager.as_mut() {
-                mgr.apply_topology_and_config(
-                    workerw_hwnd,
-                    current_monitors,
-                    &wp_state.borrow(),
-                    &effective_paused,
-                    saved_wallpapers_dir,
-                );
-            }
-            let (fps_map, global_fps) = if let Some(mgr) = manager.as_ref() {
-                collect_native_fps(mgr, current_monitors, 60)
-            } else {
-                (BTreeMap::new(), 60)
-            };
-            *controls = rebuild_tray(
-                tray_icon,
                 saved_wallpapers_dir,
-                &wp_state.borrow(),
-                current_monitors,
-                &fps_map,
-                global_fps,
+                tray_icon,
+                controls,
+                ManagerSyncMode::ApplyTopology,
             );
         }
     }
@@ -549,32 +595,16 @@ mod windows_app {
                                         save_config(&config_path, &state);
                                         drop(state);
 
-                                        let effective_paused = compute_effective_paused_map(
+                                        sync_manager_and_rebuild_tray(
+                                            &mut manager,
+                                            workerw_hwnd,
                                             &current_monitors,
                                             &wp_state.borrow(),
                                             &current_coverage_map,
-                                        );
-                                        if let Some(ref mut mgr) = manager {
-                                            mgr.apply_topology_and_config(
-                                                workerw_hwnd,
-                                                &current_monitors,
-                                                &wp_state.borrow(),
-                                                &effective_paused,
-                                                &saved_wallpapers_dir,
-                                            );
-                                        }
-                                        let (fps_map, global_fps) = if let Some(ref mgr) = manager {
-                                            collect_native_fps(mgr, &current_monitors, 60)
-                                        } else {
-                                            (BTreeMap::new(), 60)
-                                        };
-                                        controls = rebuild_tray(
-                                            &tray_icon,
                                             &saved_wallpapers_dir,
-                                            &wp_state.borrow(),
-                                            &current_monitors,
-                                            &fps_map,
-                                            global_fps,
+                                            &tray_icon,
+                                            &mut controls,
+                                            ManagerSyncMode::ApplyTopology,
                                         );
                                     }
                                 }
@@ -599,32 +629,16 @@ mod windows_app {
                                 save_config(&config_path, &state);
                                 drop(state);
 
-                                let effective_paused = compute_effective_paused_map(
+                                sync_manager_and_rebuild_tray(
+                                    &mut manager,
+                                    workerw_hwnd,
                                     &current_monitors,
                                     &wp_state.borrow(),
                                     &current_coverage_map,
-                                );
-                                if let Some(ref mut mgr) = manager {
-                                    mgr.apply_topology_and_config(
-                                        workerw_hwnd,
-                                        &current_monitors,
-                                        &wp_state.borrow(),
-                                        &effective_paused,
-                                        &saved_wallpapers_dir,
-                                    );
-                                }
-                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
-                                    collect_native_fps(mgr, &current_monitors, 60)
-                                } else {
-                                    (BTreeMap::new(), 60)
-                                };
-                                controls = rebuild_tray(
-                                    &tray_icon,
                                     &saved_wallpapers_dir,
-                                    &wp_state.borrow(),
-                                    &current_monitors,
-                                    &fps_map,
-                                    global_fps,
+                                    &tray_icon,
+                                    &mut controls,
+                                    ManagerSyncMode::ApplyTopology,
                                 );
                             }
 
@@ -634,32 +648,16 @@ mod windows_app {
                                 save_config(&config_path, &state);
                                 drop(state);
 
-                                let effective_paused = compute_effective_paused_map(
+                                sync_manager_and_rebuild_tray(
+                                    &mut manager,
+                                    workerw_hwnd,
                                     &current_monitors,
                                     &wp_state.borrow(),
                                     &current_coverage_map,
-                                );
-                                if let Some(ref mut mgr) = manager {
-                                    mgr.apply_topology_and_config(
-                                        workerw_hwnd,
-                                        &current_monitors,
-                                        &wp_state.borrow(),
-                                        &effective_paused,
-                                        &saved_wallpapers_dir,
-                                    );
-                                }
-                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
-                                    collect_native_fps(mgr, &current_monitors, 60)
-                                } else {
-                                    (BTreeMap::new(), 60)
-                                };
-                                controls = rebuild_tray(
-                                    &tray_icon,
                                     &saved_wallpapers_dir,
-                                    &wp_state.borrow(),
-                                    &current_monitors,
-                                    &fps_map,
-                                    global_fps,
+                                    &tray_icon,
+                                    &mut controls,
+                                    ManagerSyncMode::ApplyTopology,
                                 );
                             }
 
@@ -686,26 +684,16 @@ mod windows_app {
                                 save_config(&config_path, &state);
                                 drop(state);
 
-                                let effective_paused = compute_effective_paused_map(
+                                sync_manager_and_rebuild_tray(
+                                    &mut manager,
+                                    workerw_hwnd,
                                     &current_monitors,
                                     &wp_state.borrow(),
                                     &current_coverage_map,
-                                );
-                                if let Some(ref mut mgr) = manager {
-                                    mgr.update_pause_states(&wp_state.borrow(), &effective_paused);
-                                }
-                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
-                                    collect_native_fps(mgr, &current_monitors, 60)
-                                } else {
-                                    (BTreeMap::new(), 60)
-                                };
-                                controls = rebuild_tray(
-                                    &tray_icon,
                                     &saved_wallpapers_dir,
-                                    &wp_state.borrow(),
-                                    &current_monitors,
-                                    &fps_map,
-                                    global_fps,
+                                    &tray_icon,
+                                    &mut controls,
+                                    ManagerSyncMode::PauseOnly,
                                 );
                             }
 
@@ -726,32 +714,16 @@ mod windows_app {
                                 save_config(&config_path, &state);
                                 drop(state);
 
-                                let effective_paused = compute_effective_paused_map(
+                                sync_manager_and_rebuild_tray(
+                                    &mut manager,
+                                    workerw_hwnd,
                                     &current_monitors,
                                     &wp_state.borrow(),
                                     &current_coverage_map,
-                                );
-                                if let Some(ref mut mgr) = manager {
-                                    mgr.apply_topology_and_config(
-                                        workerw_hwnd,
-                                        &current_monitors,
-                                        &wp_state.borrow(),
-                                        &effective_paused,
-                                        &saved_wallpapers_dir,
-                                    );
-                                }
-                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
-                                    collect_native_fps(mgr, &current_monitors, 60)
-                                } else {
-                                    (BTreeMap::new(), 60)
-                                };
-                                controls = rebuild_tray(
-                                    &tray_icon,
                                     &saved_wallpapers_dir,
-                                    &wp_state.borrow(),
-                                    &current_monitors,
-                                    &fps_map,
-                                    global_fps,
+                                    &tray_icon,
+                                    &mut controls,
+                                    ManagerSyncMode::ApplyTopology,
                                 );
                             }
 
@@ -775,32 +747,16 @@ mod windows_app {
                                 save_config(&config_path, &state);
                                 drop(state);
 
-                                let effective_paused = compute_effective_paused_map(
+                                sync_manager_and_rebuild_tray(
+                                    &mut manager,
+                                    workerw_hwnd,
                                     &current_monitors,
                                     &wp_state.borrow(),
                                     &current_coverage_map,
-                                );
-                                if let Some(ref mut mgr) = manager {
-                                    mgr.apply_topology_and_config(
-                                        workerw_hwnd,
-                                        &current_monitors,
-                                        &wp_state.borrow(),
-                                        &effective_paused,
-                                        &saved_wallpapers_dir,
-                                    );
-                                }
-                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
-                                    collect_native_fps(mgr, &current_monitors, 60)
-                                } else {
-                                    (BTreeMap::new(), 60)
-                                };
-                                controls = rebuild_tray(
-                                    &tray_icon,
                                     &saved_wallpapers_dir,
-                                    &wp_state.borrow(),
-                                    &current_monitors,
-                                    &fps_map,
-                                    global_fps,
+                                    &tray_icon,
+                                    &mut controls,
+                                    ManagerSyncMode::ApplyTopology,
                                 );
                             }
 
@@ -821,32 +777,16 @@ mod windows_app {
                                 save_config(&config_path, &state);
                                 drop(state);
 
-                                let effective_paused = compute_effective_paused_map(
+                                sync_manager_and_rebuild_tray(
+                                    &mut manager,
+                                    workerw_hwnd,
                                     &current_monitors,
                                     &wp_state.borrow(),
                                     &current_coverage_map,
-                                );
-                                if let Some(ref mut mgr) = manager {
-                                    mgr.apply_topology_and_config(
-                                        workerw_hwnd,
-                                        &current_monitors,
-                                        &wp_state.borrow(),
-                                        &effective_paused,
-                                        &saved_wallpapers_dir,
-                                    );
-                                }
-                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
-                                    collect_native_fps(mgr, &current_monitors, 60)
-                                } else {
-                                    (BTreeMap::new(), 60)
-                                };
-                                controls = rebuild_tray(
-                                    &tray_icon,
                                     &saved_wallpapers_dir,
-                                    &wp_state.borrow(),
-                                    &current_monitors,
-                                    &fps_map,
-                                    global_fps,
+                                    &tray_icon,
+                                    &mut controls,
+                                    ManagerSyncMode::ApplyTopology,
                                 );
                             }
 
@@ -871,32 +811,16 @@ mod windows_app {
                                 save_config(&config_path, &state);
                                 drop(state);
 
-                                let effective_paused = compute_effective_paused_map(
+                                sync_manager_and_rebuild_tray(
+                                    &mut manager,
+                                    workerw_hwnd,
                                     &current_monitors,
                                     &wp_state.borrow(),
                                     &current_coverage_map,
-                                );
-                                if let Some(ref mut mgr) = manager {
-                                    mgr.apply_topology_and_config(
-                                        workerw_hwnd,
-                                        &current_monitors,
-                                        &wp_state.borrow(),
-                                        &effective_paused,
-                                        &saved_wallpapers_dir,
-                                    );
-                                }
-                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
-                                    collect_native_fps(mgr, &current_monitors, 60)
-                                } else {
-                                    (BTreeMap::new(), 60)
-                                };
-                                controls = rebuild_tray(
-                                    &tray_icon,
                                     &saved_wallpapers_dir,
-                                    &wp_state.borrow(),
-                                    &current_monitors,
-                                    &fps_map,
-                                    global_fps,
+                                    &tray_icon,
+                                    &mut controls,
+                                    ManagerSyncMode::ApplyTopology,
                                 );
                             }
 
@@ -917,18 +841,16 @@ mod windows_app {
                                     );
                                 }
                                 controls.autostart_item.set_checked(is_autostart_enabled());
-                                let (fps_map, global_fps) = if let Some(ref mgr) = manager {
-                                    collect_native_fps(mgr, &current_monitors, 60)
-                                } else {
-                                    (BTreeMap::new(), 60)
-                                };
-                                controls = rebuild_tray(
-                                    &tray_icon,
-                                    &saved_wallpapers_dir,
-                                    &wp_state.borrow(),
+                                sync_manager_and_rebuild_tray(
+                                    &mut manager,
+                                    workerw_hwnd,
                                     &current_monitors,
-                                    &fps_map,
-                                    global_fps,
+                                    &wp_state.borrow(),
+                                    &current_coverage_map,
+                                    &saved_wallpapers_dir,
+                                    &tray_icon,
+                                    &mut controls,
+                                    ManagerSyncMode::RebuildTrayOnly,
                                 );
                             }
 
@@ -976,4 +898,20 @@ mod windows_app {
 #[cfg(windows)]
 fn main() {
     windows_app::run();
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::windows_app::*;
+
+    #[test]
+    fn test_manager_sync_mode_flags() {
+        assert!(ManagerSyncMode::ApplyTopology.requires_topology_sync());
+        assert!(!ManagerSyncMode::PauseOnly.requires_topology_sync());
+        assert!(!ManagerSyncMode::RebuildTrayOnly.requires_topology_sync());
+
+        assert!(ManagerSyncMode::ApplyTopology.requires_manager_sync());
+        assert!(ManagerSyncMode::PauseOnly.requires_manager_sync());
+        assert!(!ManagerSyncMode::RebuildTrayOnly.requires_manager_sync());
+    }
 }
