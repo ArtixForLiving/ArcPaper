@@ -1,9 +1,9 @@
 #![windows_subsystem = "windows"]
 
-pub mod arc_player;
-mod workerw;
-
-use arc_player::ArcPlayer;
+#[allow(unused_imports)]
+use arc_paper::app;
+use arc_paper::arc_player::ArcPlayer;
+use arc_paper::workerw;
 
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;

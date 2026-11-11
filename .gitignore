@@ -24,6 +24,7 @@
 
 # ─── Media & Video Files ──────────────────────────────────────────────────────
 *.mp4
+!tests/assets/*.mp4
 *.mkv
 *.webm
 *.avi

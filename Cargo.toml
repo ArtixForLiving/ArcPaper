@@ -3,6 +3,14 @@ name = "arc_paper"
 version = "1.5.5"
 edition = "2024"
 
+[lib]
+name = "arc_paper"
+path = "src/lib.rs"
+
+[[bin]]
+name = "arc_paper"
+path = "src/main.rs"
+
 [dependencies]
 rfd = "0.17.2"
 serde = { version = "1", features = ["derive"] }
