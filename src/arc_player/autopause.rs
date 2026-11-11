@@ -94,6 +94,13 @@ impl AutoPause {
         Self::trim_working_set();
     }
 
+    /// Trims the shared GPU device and process working set.
+    /// Caller must invoke this strictly once when ALL monitors transition into paused/hibernated state.
+    pub fn enter_global_hibernation(gfx: &super::presenter::GraphicsDevice) {
+        gfx.trim_gpu();
+        Self::trim_working_set();
+    }
+
     /// Trims the process working set, commanding the Windows kernel to page out unused private bytes.
     pub fn trim_working_set() {
         unsafe {
