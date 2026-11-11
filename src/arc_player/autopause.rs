@@ -120,4 +120,9 @@ mod tests {
             elapsed
         );
     }
+
+    #[test]
+    fn test_trim_working_set() {
+        AutoPause::trim_working_set();
+    }
 }

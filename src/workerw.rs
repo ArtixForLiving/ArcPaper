@@ -172,6 +172,53 @@ pub fn AttachToDesktop() -> HWND {
     attach_to_desktop()
 }
 
+/// Attaches to the desktop `WorkerW`, configures pass-through styles and physical dimensions,
+/// and returns the target window handle (`WorkerW`, `Progman` fallback, or null in sandbox).
+pub fn attach_and_configure_desktop_surface(screen_w: i32, screen_h: i32) -> HWND {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
+        SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_CLIPCHILDREN,
+        WS_EX_NOACTIVATE, WS_EX_TRANSPARENT,
+    };
+
+    let workerw_hwnd = attach_to_desktop();
+    if !workerw_hwnd.0.is_null() {
+        unsafe {
+            let p_style = GetWindowLongPtrW(workerw_hwnd, GWL_STYLE) as u32;
+            let _ = SetWindowLongPtrW(
+                workerw_hwnd,
+                GWL_STYLE,
+                (p_style | WS_CLIPCHILDREN.0) as isize,
+            );
+            let p_ex_style = GetWindowLongPtrW(workerw_hwnd, GWL_EXSTYLE) as u32;
+            let _ = SetWindowLongPtrW(
+                workerw_hwnd,
+                GWL_EXSTYLE,
+                (p_ex_style | WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0) as isize,
+            );
+            let _ = SetWindowPos(
+                workerw_hwnd,
+                None,
+                0,
+                0,
+                screen_w,
+                screen_h,
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+            let _ = ShowWindow(workerw_hwnd, SW_SHOW);
+        }
+    }
+
+    let progman_current = get_progman_hwnd();
+    if !workerw_hwnd.0.is_null() {
+        workerw_hwnd
+    } else if !progman_current.0.is_null() {
+        progman_current
+    } else {
+        HWND::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
