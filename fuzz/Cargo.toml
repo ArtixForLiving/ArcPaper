@@ -1,0 +1,21 @@
+[package]
+name = "arc_paper-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.arc_paper]
+path = ".."
+
+[[bin]]
+name = "demux_mp4"
+path = "fuzz_targets/demux_mp4.rs"
+test = false
+doc = false
+bench = false
