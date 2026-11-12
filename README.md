@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ArtixForLiving/ArcPaper/releases"><img src="https://img.shields.io/github/v/release/ArtixForLiving/ArcPaper?color=00f2fe&style=for-the-badge" alt="Release v1.6.0" /></a>
+  <a href="https://github.com/ArtixForLiving/ArcPaper/releases"><img src="https://img.shields.io/github/v/release/ArtixForLiving/ArcPaper?color=00f2fe&style=for-the-badge" alt="Release v1.7.0" /></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Language-Rust%202024-orange.svg?style=for-the-badge&logo=rust" alt="Rust 2024" /></a>
   <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010-0078d4.svg?style=for-the-badge&logo=windows" alt="Windows" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-10b981.svg?style=for-the-badge" alt="License MIT" /></a>
-  <img src="https://img.shields.io/badge/Dependencies-Zero%20DLLs%20%2F%20~1.7%20MB-success.svg?style=for-the-badge" alt="Zero Dependencies" />
+  <img src="https://img.shields.io/badge/Dependencies-Zero%20DLLs%20%2F%20~1.75%20MB-success.svg?style=for-the-badge" alt="Zero Dependencies" />
 </p>
 
 ---
@@ -24,13 +24,13 @@ ArcPaper renders video frames directly into GPU VRAM using high-performance flip
 
 ## 📊 Performance Benchmarks
 
-| Metric | ArcPaper v1.6.0 | Traditional Wallpaper Engines |
+| Metric | ArcPaper v1.7.0 | Traditional Wallpaper Engines |
 |---|---|---|
 | **Idle / Auto-Pause RAM** | **~4–5 MB** | 80–150 MB |
-| **Active 1080p 60 FPS RAM** | **~30–35 MB** | 180–350 MB |
+| **Active 1080p 60 FPS RAM** | **~30–35 MB** (1 monitor) | 180–350 MB |
 | **CPU Usage (Active)** | **~0.3% – 0.5%** | 3.0% – 12.0% |
 | **Auto-Pause CPU Usage** | **0.0%** (Full thread hibernation) | 0.5% – 2.0% |
-| **Binary Distribution** | **~1.7 MB standalone executable (Portable ZIP bundle)** | 50–200 MB (Requires DLLs / runtimes) |
+| **Binary Distribution** | **~1.75 MB standalone executable (Portable ZIP bundle)** | 50–200 MB (Requires DLLs / runtimes) |
 | **External Dependencies** | **None (Zero third-party DLLs)** | Requires `libmpv`, `ffmpeg`, or Chromium |
 
 ---
@@ -54,8 +54,10 @@ ArcPaper renders video frames directly into GPU VRAM using high-performance flip
   - In-memory frame index table calculates presentation timestamps (PTS) monotonically forward across loop cycles.
   - Zero timeline seeking, zero audio pops, and zero black-frame stutter during continuous playback loops.
 
-- **💎 Per-Monitor High-DPI Crystal Clear Rendering**
-  - Full Per-Monitor V2 DPI awareness ensures crisp physical pixel mapping across 1080p, 1440p, 4K, and ultrawide displays.
+- **💎 Multi-Display, Dynamic DPI & Shared Decoding**
+  - Full Per-Monitor V2 DPI awareness with dynamic `WM_DISPLAYCHANGE`, `WM_DPICHANGED`, hot-plug, and `explorer.exe` (`TaskbarCreated`) recovery without restarting.
+  - Supports **Per-Monitor** (independent videos & settings per screen), **Clone**, and seamless **Span** across virtual desktop monitors (including negative coordinates), with shared decoding (`SharedVideoSession`) when displays share the same video.
+  - Per-monitor Smart Auto-Pause suspends only covered displays while keeping uncovered displays running.
 
 - **🔇 Silent Windows Subsystem Execution**
   - Native `#![windows_subsystem = "windows"]` configuration ensures no terminal or console window flashes during launch or startup.
@@ -103,7 +105,7 @@ flowchart LR
 
 ### Portable Distribution Archive (Recommended)
 
-1. Download the latest release package: [`ArcPaper-v1.6.0-win64.zip`](https://github.com/ArtixForLiving/ArcPaper/releases/latest).
+1. Download the latest release package: [`ArcPaper-v1.7.0-win64.zip`](https://github.com/ArtixForLiving/ArcPaper/releases/latest).
 2. Extract the ZIP archive to your preferred directory (e.g., `C:\Tools\ArcPaper` or `D:\ArcPaper`).
 3. Run `arc_paper.exe`.
 4. Right-click the **ArcPaper** icon in your Windows System Tray:
@@ -131,12 +133,12 @@ cd ArcPaper
 # Compile the optimized release binary
 cargo build --release
 
-# Run the test suite (34 tests verifying demuxer, loop controller, decoder, shaders, config, logging, recovery)
+# Run the test suite (63 tests verifying demuxer, loop controller, decoder, shaders, display topology, config, logging, recovery, tray)
 cargo test
 ```
 
 The compiled standalone executable will be located at:
-`target/release/arc_paper.exe` (~1.7 MB).
+`target/release/arc_paper.exe` (~1.75 MB).
 
 ---
 
