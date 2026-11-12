@@ -8,17 +8,19 @@ use std::time::Duration;
 #[cfg(windows)]
 use windows::Win32::Foundation::{HWND, LPARAM, RECT};
 #[cfg(windows)]
+use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
+#[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
 };
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GWL_EXSTYLE, GetClassNameW, GetForegroundWindow, GetSystemMetrics,
+    EnumWindows, FindWindowExW, GWL_EXSTYLE, GetClassNameW, GetForegroundWindow, GetSystemMetrics,
     GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
     IsZoomed, SM_CXSCREEN, SM_CYSCREEN, WS_EX_TOOLWINDOW,
 };
 #[cfg(windows)]
-use windows::core::BOOL;
+use windows::core::{BOOL, PCWSTR, w};
 
 /// Observed top-level window geometry and monitor affinity.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,36 +124,82 @@ pub fn compute_autopause_transition(
     }
 }
 
-/// Returns true if the window belongs to a Windows shell class that should be ignored for auto-pause.
+/// Returns true if a window class belongs to a Windows shell surface that should be ignored.
+pub fn is_ignored_class_name(class_name: &str) -> bool {
+    matches!(
+        class_name,
+        "Progman"
+            | "WorkerW"
+            | "SHELLDLL_DefView"
+            | "Shell_TrayWnd"
+            | "Shell_SecondaryTrayWnd"
+            | "Windows.UI.Core.CoreWindow"
+    )
+}
+
+/// Returns true when a top-level window represents the desktop shell plane (`Progman` or the
+/// Windows 10 `WorkerW` hosting `SHELLDLL_DefView`), below which apps are hidden (e.g. `Win+D`).
+pub fn is_desktop_plane_class(class_name: &str, has_shelldll_defview: bool) -> bool {
+    class_name == "Progman" || (class_name == "WorkerW" && has_shelldll_defview)
+}
+
+/// Pure eligibility filter determining whether a top-level window should be evaluated for auto-pause.
+pub fn should_observe_window(
+    is_visible: bool,
+    is_iconic: bool,
+    is_cloaked: bool,
+    is_tool_window: bool,
+    same_pid: bool,
+    is_shell_class: bool,
+    rect: DisplayRect,
+) -> bool {
+    is_visible
+        && !is_iconic
+        && !is_cloaked
+        && !is_tool_window
+        && !same_pid
+        && !is_shell_class
+        && !rect.is_empty()
+}
+
+#[cfg(windows)]
+unsafe fn get_window_class_name(hwnd: HWND) -> String {
+    let mut class_buf = [0u16; 256];
+    let len = unsafe { GetClassNameW(hwnd, &mut class_buf) };
+    if len > 0 {
+        String::from_utf16_lossy(&class_buf[..len as usize])
+    } else {
+        String::new()
+    }
+}
+
+/// Returns true when DWM marks the window as cloaked (e.g. suspended UWP apps like Settings or
+/// windows on other virtual desktops).
 ///
-/// Ignored shell classes:
-/// - `"Progman"`
-/// - `"WorkerW"`
-/// - `"SHELLDLL_DefView"`
-/// - `"Shell_TrayWnd"`
-/// - `"Shell_SecondaryTrayWnd"`
-/// - `"Windows.UI.Core.CoreWindow"`
+/// # Safety
+/// Caller must ensure `hwnd` is a valid Win32 window handle.
+#[cfg(windows)]
+pub unsafe fn is_window_cloaked(hwnd: HWND) -> bool {
+    let mut cloaked: u32 = 0;
+    let hr = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            (&raw mut cloaked).cast(),
+            std::mem::size_of::<u32>() as u32,
+        )
+    };
+    hr.is_ok() && cloaked != 0
+}
+
+/// Returns true if the window belongs to a Windows shell class that should be ignored for auto-pause.
 ///
 /// # Safety
 /// Caller must ensure `hwnd` is a valid Win32 window handle or null.
 #[cfg(windows)]
 pub unsafe fn is_ignored_shell_class(hwnd: HWND) -> bool {
-    let mut class_buf = [0u16; 256];
-    let len = unsafe { GetClassNameW(hwnd, &mut class_buf) };
-    if len > 0 {
-        let class_str = String::from_utf16_lossy(&class_buf[..len as usize]);
-        matches!(
-            class_str.as_str(),
-            "Progman"
-                | "WorkerW"
-                | "SHELLDLL_DefView"
-                | "Shell_TrayWnd"
-                | "Shell_SecondaryTrayWnd"
-                | "Windows.UI.Core.CoreWindow"
-        )
-    } else {
-        false
-    }
+    let class_str = unsafe { get_window_class_name(hwnd) };
+    is_ignored_class_name(&class_str)
 }
 
 /// Checks whether the active foreground window covers the desktop screen (maximized or fullscreen).
@@ -169,7 +217,7 @@ pub unsafe fn is_foreground_covering_screen(
         if fg.0.is_null() {
             return false;
         }
-        if !IsWindowVisible(fg).as_bool() || IsIconic(fg).as_bool() {
+        if !IsWindowVisible(fg).as_bool() || IsIconic(fg).as_bool() || is_window_cloaked(fg) {
             return false;
         }
 
@@ -223,24 +271,26 @@ pub unsafe fn collect_window_observations(
             return BOOL(1);
         }
 
-        if !unsafe { IsWindowVisible(hwnd) }.as_bool() || unsafe { IsIconic(hwnd) }.as_bool() {
-            return BOOL(1);
+        let class_name = unsafe { get_window_class_name(hwnd) };
+        let has_shelldll_defview = if class_name == "WorkerW" {
+            unsafe { FindWindowExW(Some(hwnd), None, w!("SHELLDLL_DefView"), PCWSTR::null()) }
+                .is_ok_and(|h| !h.0.is_null())
+        } else {
+            false
+        };
+        if is_desktop_plane_class(&class_name, has_shelldll_defview) {
+            return BOOL(0);
         }
+
+        let is_visible = unsafe { IsWindowVisible(hwnd) }.as_bool();
+        let is_iconic = unsafe { IsIconic(hwnd) }.as_bool();
+        let is_cloaked = unsafe { is_window_cloaked(hwnd) };
 
         let mut win_pid = 0u32;
         unsafe { GetWindowThreadProcessId(hwnd, Some(&mut win_pid)) };
-        if win_pid == data.our_pid {
-            return BOOL(1);
-        }
 
         let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
-        if (ex_style & WS_EX_TOOLWINDOW.0) != 0 {
-            return BOOL(1);
-        }
-
-        if unsafe { is_ignored_shell_class(hwnd) } {
-            return BOOL(1);
-        }
+        let is_tool_window = (ex_style & WS_EX_TOOLWINDOW.0) != 0;
 
         let mut rect = RECT::default();
         if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
@@ -254,7 +304,15 @@ pub unsafe fn collect_window_observations(
             bottom: rect.bottom,
         };
 
-        if win_rect.is_empty() {
+        if !should_observe_window(
+            is_visible,
+            is_iconic,
+            is_cloaked,
+            is_tool_window,
+            win_pid == data.our_pid,
+            is_ignored_class_name(&class_name),
+            win_rect,
+        ) {
             return BOOL(1);
         }
 
@@ -726,5 +784,44 @@ mod tests {
         // Smoke test: verifies EnumWindows runs, parses windows, maps monitors without panicking.
         let coverage = evaluate_monitor_coverage(&monitors, &observations);
         assert!(coverage.contains_key(&monitors[0].id));
+    }
+
+    #[test]
+    fn test_should_observe_window_rejects_cloaked_and_hidden() {
+        let full = DisplayRect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        assert!(should_observe_window(
+            true, false, false, false, false, false, full
+        ));
+        assert!(!should_observe_window(
+            true, false, true, false, false, false, full
+        ));
+        assert!(!should_observe_window(
+            false, false, false, false, false, false, full
+        ));
+        assert!(!should_observe_window(
+            true, true, false, false, false, false, full
+        ));
+        assert!(!should_observe_window(
+            true, false, false, true, false, false, full
+        ));
+        assert!(!should_observe_window(
+            true, false, false, false, true, false, full
+        ));
+        assert!(!should_observe_window(
+            true, false, false, false, false, true, full
+        ));
+    }
+
+    #[test]
+    fn test_is_desktop_plane_class_identifies_progman_and_shell_workerw() {
+        assert!(is_desktop_plane_class("Progman", false));
+        assert!(is_desktop_plane_class("WorkerW", true));
+        assert!(!is_desktop_plane_class("WorkerW", false));
+        assert!(!is_desktop_plane_class("Chrome_WidgetWin_1", false));
     }
 }

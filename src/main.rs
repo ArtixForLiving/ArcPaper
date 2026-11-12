@@ -496,6 +496,19 @@ mod windows_app {
 
             match event {
                 Event::UserEvent(UserEvent::AutoPauseMap(coverage_map)) => {
+                    let prev_covered = current_coverage_map.values().filter(|&&c| c).count();
+                    let next_covered = coverage_map.values().filter(|&&c| c).count();
+                    if prev_covered != next_covered {
+                        if next_covered > 0 {
+                            log_msg(&format!(
+                                "[ArcPaper] Smart Auto-Pause: Covering window active on {}/{} monitor(s).",
+                                next_covered,
+                                current_monitors.len().max(next_covered)
+                            ));
+                        } else {
+                            log_msg("[ArcPaper] Smart Auto-Resume: Desktop visible on all monitors.");
+                        }
+                    }
                     current_coverage_map = coverage_map;
                     let effective_paused = compute_effective_paused_map(
                         &current_monitors,

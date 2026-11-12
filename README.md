@@ -133,7 +133,7 @@ cd ArcPaper
 # Compile the optimized release binary
 cargo build --release
 
-# Run the test suite (63 tests verifying demuxer, loop controller, decoder, shaders, display topology, config, logging, recovery, tray)
+# Run the test suite (65 tests verifying demuxer, loop controller, decoder, shaders, display topology, config, logging, recovery, tray)
 cargo test
 ```
 
