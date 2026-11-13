@@ -5,9 +5,9 @@ fn main() {}
 
 #[cfg(windows)]
 mod windows_app {
-    use arc_paper::app::autopause_monitor::{resolve_effective_pause, spawn_multi_monitor_thread};
-    use arc_paper::app::autostart::{disable_autostart, enable_autostart, is_autostart_enabled};
+    use arc_paper::app::autopause_monitor::spawn_multi_monitor_thread;
     use arc_paper::app::config::{AppConfig, load_config, save_config};
+    use arc_paper::app::event_host::{ArcPaperEventHost, HostEvent};
     use arc_paper::app::log::{
         DEFAULT_MAX_LOG_BACKUPS, DEFAULT_MAX_LOG_BYTES, LogLevel, init_logger, log_msg,
         log_with_level,
@@ -16,331 +16,30 @@ mod windows_app {
         configure_process_and_dpi, get_app_dir, get_config_path, get_saved_wallpapers_dir,
         list_mp4_files,
     };
-    use arc_paper::app::tray::{TrayAction, TrayControls, build_initial_tray_icon, rebuild_tray};
-    use arc_paper::app::uninstall::perform_uninstall;
-    use arc_paper::app::updater::check_for_updates;
+    #[allow(unused_imports)]
+    pub(crate) use arc_paper::app::tray::ManagerSyncMode;
+    use arc_paper::app::tray::{
+        TrayOutcome, build_initial_tray_icon, collect_native_fps, compute_effective_paused_map,
+        handle_topology_change_if_needed, handle_tray_action,
+    };
     use arc_paper::arc_player::{AutoPause, WallpaperManager};
     use arc_paper::display::topology::DisplayDebounce;
-    use arc_paper::display::{MonitorId, MonitorInfo, diff_topologies, enumerate_monitors};
+    use arc_paper::display::{MonitorId, enumerate_monitors};
     use arc_paper::workerw;
 
     use std::cell::RefCell;
     use std::collections::BTreeMap;
-    use std::path::Path;
     use std::rc::Rc;
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
     use tao::event::Event;
-    use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
+    use tao::event_loop::{ControlFlow, EventLoopBuilder};
     use tray_icon::menu::MenuEvent;
-    use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-    use windows::Win32::UI::WindowsAndMessaging::GWLP_USERDATA;
 
     enum UserEvent {
         TrayMenu(MenuEvent),
         AutoPauseMap(BTreeMap<MonitorId, bool>),
-        DisplayTopologyDirty,
-        ExplorerRestarted,
-    }
-
-    struct EventHostContext {
-        proxy: EventLoopProxy<UserEvent>,
-        taskbar_created_msg: u32,
-    }
-
-    struct ArcPaperEventHost {
-        hwnd: HWND,
-        ctx: *mut EventHostContext,
-    }
-
-    unsafe extern "system" fn event_host_wnd_proc(
-        hwnd: HWND,
-        msg: u32,
-        wparam: WPARAM,
-        lparam: LPARAM,
-    ) -> LRESULT {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            DefWindowProcW, EndMenu, SetWindowLongPtrW, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED,
-            WM_SETTINGCHANGE,
-        };
-
-        unsafe {
-            if msg == WM_CREATE {
-                let create_struct =
-                    &*(lparam.0 as *const windows::Win32::UI::WindowsAndMessaging::CREATESTRUCTW);
-                let ctx_ptr = create_struct.lpCreateParams as isize;
-                SetWindowLongPtrW(hwnd, GWLP_USERDATA, ctx_ptr);
-                return LRESULT(0);
-            }
-
-            let ctx_ptr =
-                windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-            if ctx_ptr != 0 {
-                let ctx = &*(ctx_ptr as *const EventHostContext);
-
-                const SPI_SETWORKAREA: usize = 0x002F;
-                const SPI_SETLOGICALDPIOVERRIDE: usize = 0x009F;
-
-                if msg == WM_DISPLAYCHANGE || msg == WM_DPICHANGED {
-                    let _ = EndMenu();
-                    let _ = ctx.proxy.send_event(UserEvent::DisplayTopologyDirty);
-                    return LRESULT(0);
-                } else if msg == WM_SETTINGCHANGE {
-                    if wparam.0 == SPI_SETWORKAREA || wparam.0 == SPI_SETLOGICALDPIOVERRIDE {
-                        let _ = ctx.proxy.send_event(UserEvent::DisplayTopologyDirty);
-                        return LRESULT(0);
-                    }
-                } else if ctx.taskbar_created_msg != 0 && msg == ctx.taskbar_created_msg {
-                    let _ = ctx.proxy.send_event(UserEvent::ExplorerRestarted);
-                    return LRESULT(0);
-                }
-            }
-
-            DefWindowProcW(hwnd, msg, wparam, lparam)
-        }
-    }
-
-    impl ArcPaperEventHost {
-        pub fn new(proxy: EventLoopProxy<UserEvent>) -> Result<Self, String> {
-            use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-            use windows::Win32::UI::WindowsAndMessaging::{
-                CS_HREDRAW, CS_VREDRAW, CreateWindowExW, HCURSOR, HICON, RegisterClassExW,
-                RegisterWindowMessageW, SetWindowLongPtrW, WNDCLASSEXW, WS_EX_NOACTIVATE,
-                WS_EX_TOOLWINDOW, WS_POPUP,
-            };
-            use windows::core::{PCWSTR, w};
-
-            unsafe {
-                let hinstance = match GetModuleHandleW(None) {
-                    Ok(h) => h,
-                    Err(e) => return Err(format!("GetModuleHandleW failed: {e}")),
-                };
-                let hinst = HINSTANCE(hinstance.0);
-                let class_name = w!("ArcPaperEventHost");
-
-                let wcx = WNDCLASSEXW {
-                    cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-                    style: CS_HREDRAW | CS_VREDRAW,
-                    lpfnWndProc: Some(event_host_wnd_proc),
-                    cbClsExtra: 0,
-                    cbWndExtra: 0,
-                    hInstance: hinst,
-                    hIcon: HICON::default(),
-                    hCursor: HCURSOR::default(),
-                    hbrBackground: windows::Win32::Graphics::Gdi::HBRUSH::default(),
-                    lpszMenuName: PCWSTR::null(),
-                    lpszClassName: class_name,
-                    hIconSm: HICON::default(),
-                };
-                let _ = RegisterClassExW(&wcx);
-
-                let taskbar_created_msg = RegisterWindowMessageW(w!("TaskbarCreated"));
-
-                let ctx = Box::into_raw(Box::new(EventHostContext {
-                    proxy,
-                    taskbar_created_msg,
-                }));
-
-                let hwnd = match CreateWindowExW(
-                    WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-                    class_name,
-                    w!("ArcPaperEventHostWindow"),
-                    WS_POPUP,
-                    0,
-                    0,
-                    0,
-                    0,
-                    None,
-                    None,
-                    Some(hinst),
-                    Some(ctx as *const _ as *const std::ffi::c_void),
-                ) {
-                    Ok(h) => h,
-                    Err(e) => {
-                        drop(Box::from_raw(ctx));
-                        return Err(format!("CreateWindowExW failed: {e}"));
-                    }
-                };
-
-                SetWindowLongPtrW(hwnd, GWLP_USERDATA, ctx as isize);
-
-                Ok(Self { hwnd, ctx })
-            }
-        }
-    }
-
-    impl Drop for ArcPaperEventHost {
-        fn drop(&mut self) {
-            unsafe {
-                if !self.hwnd.0.is_null() {
-                    use windows::Win32::UI::WindowsAndMessaging::{
-                        DestroyWindow, SetWindowLongPtrW,
-                    };
-                    SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
-                    let _ = DestroyWindow(self.hwnd);
-                    self.hwnd = HWND::default();
-                }
-                if !self.ctx.is_null() {
-                    drop(Box::from_raw(self.ctx));
-                    self.ctx = std::ptr::null_mut();
-                }
-            }
-        }
-    }
-
-    fn log_fps_limit(target_fps: Option<u32>) {
-        match target_fps {
-            Some(fps) => log_msg(&format!(
-                "[ArcPaper] Applying FPS pacing limit: {} FPS",
-                fps
-            )),
-            None => log_msg("[ArcPaper] Resetting FPS pacing to Native frame rate"),
-        }
-    }
-
-    fn compute_effective_paused_map(
-        monitors: &[MonitorInfo],
-        config: &AppConfig,
-        coverage_map: &BTreeMap<MonitorId, bool>,
-    ) -> BTreeMap<MonitorId, bool> {
-        let mut map = BTreeMap::new();
-        for mon in monitors {
-            let covered = coverage_map.get(&mon.id).copied().unwrap_or(false);
-            let resolved = config.resolve_for_monitor(&mon.id);
-            let effective = resolve_effective_pause(covered, resolved.is_manually_paused);
-            map.insert(mon.id.clone(), effective);
-        }
-        map
-    }
-
-    fn collect_native_fps(
-        manager: &WallpaperManager,
-        monitors: &[MonitorInfo],
-        fallback_fps: u32,
-    ) -> (BTreeMap<MonitorId, u32>, u32) {
-        let mut fps_map = BTreeMap::new();
-        let mut max_fps = fallback_fps;
-        for mon in monitors {
-            if let Some(fps) = manager.native_fps_for_monitor(&mon.id) {
-                fps_map.insert(mon.id.clone(), fps);
-                if fps > max_fps {
-                    max_fps = fps;
-                }
-            } else {
-                fps_map.insert(mon.id.clone(), fallback_fps);
-            }
-        }
-        (fps_map, max_fps)
-    }
-
-    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-    pub(crate) enum ManagerSyncMode {
-        ApplyTopology,
-        PauseOnly,
-        RebuildTrayOnly,
-    }
-
-    impl ManagerSyncMode {
-        pub(crate) fn requires_topology_sync(&self) -> bool {
-            matches!(self, Self::ApplyTopology)
-        }
-
-        pub(crate) fn requires_manager_sync(&self) -> bool {
-            matches!(self, Self::ApplyTopology | Self::PauseOnly)
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn sync_manager_and_rebuild_tray(
-        manager: &mut Option<WallpaperManager>,
-        workerw_hwnd: HWND,
-        current_monitors: &[MonitorInfo],
-        config: &AppConfig,
-        current_coverage_map: &BTreeMap<MonitorId, bool>,
-        saved_wallpapers_dir: &Path,
-        tray_icon: &tray_icon::TrayIcon,
-        controls: &mut TrayControls,
-        sync_mode: ManagerSyncMode,
-    ) {
-        if sync_mode.requires_manager_sync() {
-            let effective_paused =
-                compute_effective_paused_map(current_monitors, config, current_coverage_map);
-            if let Some(mgr) = manager.as_mut() {
-                if sync_mode.requires_topology_sync() {
-                    mgr.apply_topology_and_config(
-                        workerw_hwnd,
-                        current_monitors,
-                        config,
-                        &effective_paused,
-                        saved_wallpapers_dir,
-                    );
-                } else {
-                    mgr.update_pause_states(config, &effective_paused);
-                }
-            }
-        }
-
-        let (fps_map, global_fps) = if let Some(mgr) = manager.as_ref() {
-            collect_native_fps(mgr, current_monitors, 60)
-        } else {
-            (BTreeMap::new(), 60)
-        };
-        *controls = rebuild_tray(
-            tray_icon,
-            saved_wallpapers_dir,
-            config,
-            current_monitors,
-            &fps_map,
-            global_fps,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn handle_topology_change_if_needed(
-        current_monitors: &mut Vec<MonitorInfo>,
-        monitors_snapshot: &Arc<RwLock<Vec<MonitorInfo>>>,
-        manager: &mut Option<WallpaperManager>,
-        workerw_hwnd: HWND,
-        wp_state: &Rc<RefCell<AppConfig>>,
-        current_coverage_map: &BTreeMap<MonitorId, bool>,
-        saved_wallpapers_dir: &Path,
-        tray_icon: &tray_icon::TrayIcon,
-        controls: &mut TrayControls,
-    ) {
-        let next_monitors = enumerate_monitors();
-        let diff = diff_topologies(current_monitors, &next_monitors);
-        let monitor_count_mismatch = manager
-            .as_ref()
-            .map(|m| m.monitor_count() != next_monitors.len())
-            .unwrap_or(false);
-
-        if diff.has_changes() || monitor_count_mismatch {
-            unsafe {
-                let _ = windows::Win32::UI::WindowsAndMessaging::EndMenu();
-            }
-            log_msg(&format!(
-                "[ArcPaper] Display topology changed: added={}, removed={}, changed={}, unchanged={}. Updating layout...",
-                diff.added.len(),
-                diff.removed.len(),
-                diff.changed.len(),
-                diff.unchanged.len()
-            ));
-            *current_monitors = next_monitors.clone();
-            if let Ok(mut snap) = monitors_snapshot.write() {
-                *snap = next_monitors;
-            }
-            sync_manager_and_rebuild_tray(
-                manager,
-                workerw_hwnd,
-                current_monitors,
-                &wp_state.borrow(),
-                current_coverage_map,
-                saved_wallpapers_dir,
-                tray_icon,
-                controls,
-                ManagerSyncMode::ApplyTopology,
-            );
-        }
+        Host(HostEvent),
     }
 
     pub fn run() {
@@ -454,7 +153,9 @@ mod windows_app {
         }));
 
         let proxy_event_host = event_loop.create_proxy();
-        let event_host = match ArcPaperEventHost::new(proxy_event_host) {
+        let event_host = match ArcPaperEventHost::new(move |event| {
+            let _ = proxy_event_host.send_event(UserEvent::Host(event));
+        }) {
             Ok(host) => Some(host),
             Err(e) => {
                 log_with_level(
@@ -529,11 +230,11 @@ mod windows_app {
                     }
                 }
 
-                Event::UserEvent(UserEvent::DisplayTopologyDirty) => {
+                Event::UserEvent(UserEvent::Host(HostEvent::DisplayTopologyDirty)) => {
                     display_debounce.trigger_at(std::time::Instant::now());
                 }
 
-                Event::UserEvent(UserEvent::ExplorerRestarted) => {
+                Event::UserEvent(UserEvent::Host(HostEvent::ExplorerRestarted)) => {
                     log_msg(
                         "[ArcPaper] Explorer restart detected (TaskbarCreated). Reattaching to WorkerW...",
                     );
@@ -578,307 +279,20 @@ mod windows_app {
 
                 Event::UserEvent(UserEvent::TrayMenu(menu_event)) => {
                     if let Some(action) = controls.actions.get(&menu_event.id).cloned() {
-                        match action {
-                            TrayAction::UploadWallpaper(target) => {
-                                if let Some(source_path) = rfd::FileDialog::new()
-                                    .add_filter("MP4 Video (*.mp4)", &["mp4"])
-                                    .set_title("Select MP4 Video File")
-                                    .pick_file()
-                                    && let Some(file_name) =
-                                        source_path.file_name().and_then(|n| n.to_str())
-                                {
-                                    let dest_path = saved_wallpapers_dir.join(file_name);
-                                    if let Err(e) = std::fs::copy(&source_path, &dest_path) {
-                                        log_with_level(
-                                            LogLevel::Error,
-                                            &format!("[ArcPaper] Copy failed: {e:?}"),
-                                        );
-                                    } else {
-                                        let mut state = wp_state.borrow_mut();
-                                        match &target {
-                                            Some(mid) => {
-                                                let entry = state
-                                                    .monitors
-                                                    .entry(mid.as_str().to_string())
-                                                    .or_default();
-                                                entry.active_video = Some(file_name.to_string());
-                                                entry.is_manually_paused = Some(false);
-                                            }
-                                            None => {
-                                                state.active_video = Some(file_name.to_string());
-                                                state.is_manually_paused = false;
-                                            }
-                                        }
-                                        save_config(&config_path, &state);
-                                        drop(state);
-
-                                        sync_manager_and_rebuild_tray(
-                                            &mut manager,
-                                            workerw_hwnd,
-                                            &current_monitors,
-                                            &wp_state.borrow(),
-                                            &current_coverage_map,
-                                            &saved_wallpapers_dir,
-                                            &tray_icon,
-                                            &mut controls,
-                                            ManagerSyncMode::ApplyTopology,
-                                        );
-                                    }
-                                }
-                            }
-
-                            TrayAction::SelectWallpaper { monitor_id, file } => {
-                                let mut state = wp_state.borrow_mut();
-                                match &monitor_id {
-                                    Some(mid) => {
-                                        let entry = state
-                                            .monitors
-                                            .entry(mid.as_str().to_string())
-                                            .or_default();
-                                        entry.active_video = Some(file);
-                                        entry.is_manually_paused = Some(false);
-                                    }
-                                    None => {
-                                        state.active_video = Some(file);
-                                        state.is_manually_paused = false;
-                                    }
-                                }
-                                save_config(&config_path, &state);
-                                drop(state);
-
-                                sync_manager_and_rebuild_tray(
-                                    &mut manager,
-                                    workerw_hwnd,
-                                    &current_monitors,
-                                    &wp_state.borrow(),
-                                    &current_coverage_map,
-                                    &saved_wallpapers_dir,
-                                    &tray_icon,
-                                    &mut controls,
-                                    ManagerSyncMode::ApplyTopology,
-                                );
-                            }
-
-                            TrayAction::SetDisplayMode(new_mode) => {
-                                let mut state = wp_state.borrow_mut();
-                                state.display_mode = new_mode;
-                                save_config(&config_path, &state);
-                                drop(state);
-
-                                sync_manager_and_rebuild_tray(
-                                    &mut manager,
-                                    workerw_hwnd,
-                                    &current_monitors,
-                                    &wp_state.borrow(),
-                                    &current_coverage_map,
-                                    &saved_wallpapers_dir,
-                                    &tray_icon,
-                                    &mut controls,
-                                    ManagerSyncMode::ApplyTopology,
-                                );
-                            }
-
-                            TrayAction::TogglePause(target) => {
-                                let mut state = wp_state.borrow_mut();
-                                match &target {
-                                    Some(mid) => {
-                                        let currently_paused =
-                                            state.resolve_for_monitor(mid).is_manually_paused;
-                                        let entry = state
-                                            .monitors
-                                            .entry(mid.as_str().to_string())
-                                            .or_default();
-                                        entry.is_manually_paused = Some(!currently_paused);
-                                    }
-                                    None => {
-                                        let next = !state.is_manually_paused;
-                                        state.is_manually_paused = next;
-                                        for ov in state.monitors.values_mut() {
-                                            ov.is_manually_paused = None;
-                                        }
-                                    }
-                                }
-                                save_config(&config_path, &state);
-                                drop(state);
-
-                                sync_manager_and_rebuild_tray(
-                                    &mut manager,
-                                    workerw_hwnd,
-                                    &current_monitors,
-                                    &wp_state.borrow(),
-                                    &current_coverage_map,
-                                    &saved_wallpapers_dir,
-                                    &tray_icon,
-                                    &mut controls,
-                                    ManagerSyncMode::PauseOnly,
-                                );
-                            }
-
-                            TrayAction::SetFit { monitor_id, fit } => {
-                                let mut state = wp_state.borrow_mut();
-                                match &monitor_id {
-                                    Some(mid) => {
-                                        let ov = state
-                                            .monitors
-                                            .entry(mid.as_str().to_string())
-                                            .or_default();
-                                        ov.fit_mode = Some(fit.to_string());
-                                    }
-                                    None => {
-                                        state.fit_mode = fit.to_string();
-                                    }
-                                }
-                                save_config(&config_path, &state);
-                                drop(state);
-
-                                sync_manager_and_rebuild_tray(
-                                    &mut manager,
-                                    workerw_hwnd,
-                                    &current_monitors,
-                                    &wp_state.borrow(),
-                                    &current_coverage_map,
-                                    &saved_wallpapers_dir,
-                                    &tray_icon,
-                                    &mut controls,
-                                    ManagerSyncMode::ApplyTopology,
-                                );
-                            }
-
-                            TrayAction::SetBrightness {
-                                monitor_id,
-                                brightness,
-                            } => {
-                                let mut state = wp_state.borrow_mut();
-                                match &monitor_id {
-                                    Some(mid) => {
-                                        let ov = state
-                                            .monitors
-                                            .entry(mid.as_str().to_string())
-                                            .or_default();
-                                        ov.brightness = Some(brightness);
-                                    }
-                                    None => {
-                                        state.brightness = brightness;
-                                    }
-                                }
-                                save_config(&config_path, &state);
-                                drop(state);
-
-                                sync_manager_and_rebuild_tray(
-                                    &mut manager,
-                                    workerw_hwnd,
-                                    &current_monitors,
-                                    &wp_state.borrow(),
-                                    &current_coverage_map,
-                                    &saved_wallpapers_dir,
-                                    &tray_icon,
-                                    &mut controls,
-                                    ManagerSyncMode::ApplyTopology,
-                                );
-                            }
-
-                            TrayAction::SetSpeed { monitor_id, speed } => {
-                                let mut state = wp_state.borrow_mut();
-                                match &monitor_id {
-                                    Some(mid) => {
-                                        let ov = state
-                                            .monitors
-                                            .entry(mid.as_str().to_string())
-                                            .or_default();
-                                        ov.speed = Some(speed);
-                                    }
-                                    None => {
-                                        state.speed = speed;
-                                    }
-                                }
-                                save_config(&config_path, &state);
-                                drop(state);
-
-                                sync_manager_and_rebuild_tray(
-                                    &mut manager,
-                                    workerw_hwnd,
-                                    &current_monitors,
-                                    &wp_state.borrow(),
-                                    &current_coverage_map,
-                                    &saved_wallpapers_dir,
-                                    &tray_icon,
-                                    &mut controls,
-                                    ManagerSyncMode::ApplyTopology,
-                                );
-                            }
-
-                            TrayAction::SetTargetFps {
-                                monitor_id,
-                                target_fps,
-                            } => {
-                                let mut state = wp_state.borrow_mut();
-                                match &monitor_id {
-                                    Some(mid) => {
-                                        let ov = state
-                                            .monitors
-                                            .entry(mid.as_str().to_string())
-                                            .or_default();
-                                        ov.target_fps = target_fps;
-                                    }
-                                    None => {
-                                        state.target_fps = target_fps;
-                                    }
-                                }
-                                log_fps_limit(target_fps);
-                                save_config(&config_path, &state);
-                                drop(state);
-
-                                sync_manager_and_rebuild_tray(
-                                    &mut manager,
-                                    workerw_hwnd,
-                                    &current_monitors,
-                                    &wp_state.borrow(),
-                                    &current_coverage_map,
-                                    &saved_wallpapers_dir,
-                                    &tray_icon,
-                                    &mut controls,
-                                    ManagerSyncMode::ApplyTopology,
-                                );
-                            }
-
-                            TrayAction::CheckUpdates => {
-                                std::thread::spawn(check_for_updates);
-                            }
-
-                            TrayAction::ToggleAutostart => {
-                                let res = if is_autostart_enabled() {
-                                    disable_autostart()
-                                } else {
-                                    enable_autostart()
-                                };
-                                if let Err(e) = res {
-                                    log_with_level(
-                                        LogLevel::Error,
-                                        &format!("[ArcPaper] Auto-start error: {e:?}"),
-                                    );
-                                }
-                                controls.autostart_item.set_checked(is_autostart_enabled());
-                                sync_manager_and_rebuild_tray(
-                                    &mut manager,
-                                    workerw_hwnd,
-                                    &current_monitors,
-                                    &wp_state.borrow(),
-                                    &current_coverage_map,
-                                    &saved_wallpapers_dir,
-                                    &tray_icon,
-                                    &mut controls,
-                                    ManagerSyncMode::RebuildTrayOnly,
-                                );
-                            }
-
-                            TrayAction::Uninstall => {
-                                perform_uninstall();
-                            }
-
-                            TrayAction::Exit => {
-                                log_msg("[ArcPaper] Exit requested. Shutting down cleanly...");
-                                *control_flow = ControlFlow::Exit;
-                            }
+                        let outcome = handle_tray_action(
+                            action,
+                            &mut manager,
+                            workerw_hwnd,
+                            &current_monitors,
+                            &wp_state,
+                            &current_coverage_map,
+                            &saved_wallpapers_dir,
+                            &config_path,
+                            &tray_icon,
+                            &mut controls,
+                        );
+                        if outcome == TrayOutcome::Exit {
+                            *control_flow = ControlFlow::Exit;
                         }
                     }
                 }

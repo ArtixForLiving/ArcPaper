@@ -1,15 +1,21 @@
 //! System tray icon rendering and hierarchical menu builder.
 
-use super::autostart::is_autostart_enabled;
-use super::config::{AppConfig, DisplayMode, ResolvedMonitorConfig};
+use super::autopause_monitor::resolve_effective_pause;
+use super::autostart::{disable_autostart, enable_autostart, is_autostart_enabled};
+use super::config::{AppConfig, DisplayMode, ResolvedMonitorConfig, save_config};
 use super::log::{LogLevel, log_msg, log_with_level};
 use super::paths::list_mp4_files;
-use crate::display::{MonitorId, MonitorInfo};
+use super::uninstall::perform_uninstall;
+use super::updater::check_for_updates;
+use crate::arc_player::WallpaperManager;
+use crate::display::{MonitorId, MonitorInfo, diff_topologies, enumerate_monitors};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+use windows::Win32::Foundation::HWND;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TrayAction {
@@ -517,6 +523,459 @@ pub fn rebuild_tray(
     new_controls
 }
 
+pub fn log_fps_limit(target_fps: Option<u32>) {
+    match target_fps {
+        Some(fps) => log_msg(&format!(
+            "[ArcPaper] Applying FPS pacing limit: {} FPS",
+            fps
+        )),
+        None => log_msg("[ArcPaper] Resetting FPS pacing to Native frame rate"),
+    }
+}
+
+pub fn compute_effective_paused_map(
+    monitors: &[MonitorInfo],
+    config: &AppConfig,
+    coverage_map: &BTreeMap<MonitorId, bool>,
+) -> BTreeMap<MonitorId, bool> {
+    let mut map = BTreeMap::new();
+    for mon in monitors {
+        let covered = coverage_map.get(&mon.id).copied().unwrap_or(false);
+        let resolved = config.resolve_for_monitor(&mon.id);
+        let effective = resolve_effective_pause(covered, resolved.is_manually_paused);
+        map.insert(mon.id.clone(), effective);
+    }
+    map
+}
+
+pub fn collect_native_fps(
+    manager: &WallpaperManager,
+    monitors: &[MonitorInfo],
+    fallback_fps: u32,
+) -> (BTreeMap<MonitorId, u32>, u32) {
+    let mut fps_map = BTreeMap::new();
+    let mut max_fps = fallback_fps;
+    for mon in monitors {
+        if let Some(fps) = manager.native_fps_for_monitor(&mon.id) {
+            fps_map.insert(mon.id.clone(), fps);
+            if fps > max_fps {
+                max_fps = fps;
+            }
+        } else {
+            fps_map.insert(mon.id.clone(), fallback_fps);
+        }
+    }
+    (fps_map, max_fps)
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ManagerSyncMode {
+    ApplyTopology,
+    PauseOnly,
+    RebuildTrayOnly,
+}
+
+impl ManagerSyncMode {
+    pub fn requires_topology_sync(&self) -> bool {
+        matches!(self, Self::ApplyTopology)
+    }
+
+    pub fn requires_manager_sync(&self) -> bool {
+        matches!(self, Self::ApplyTopology | Self::PauseOnly)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TrayOutcome {
+    Continue,
+    Exit,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn sync_manager_and_rebuild_tray(
+    manager: &mut Option<WallpaperManager>,
+    workerw_hwnd: HWND,
+    current_monitors: &[MonitorInfo],
+    config: &AppConfig,
+    current_coverage_map: &BTreeMap<MonitorId, bool>,
+    saved_wallpapers_dir: &Path,
+    tray_icon: &tray_icon::TrayIcon,
+    controls: &mut TrayControls,
+    sync_mode: ManagerSyncMode,
+) {
+    if sync_mode.requires_manager_sync() {
+        let effective_paused =
+            compute_effective_paused_map(current_monitors, config, current_coverage_map);
+        if let Some(mgr) = manager.as_mut() {
+            if sync_mode.requires_topology_sync() {
+                mgr.apply_topology_and_config(
+                    workerw_hwnd,
+                    current_monitors,
+                    config,
+                    &effective_paused,
+                    saved_wallpapers_dir,
+                );
+            } else {
+                mgr.update_pause_states(config, &effective_paused);
+            }
+        }
+    }
+
+    let (fps_map, global_fps) = if let Some(mgr) = manager.as_ref() {
+        collect_native_fps(mgr, current_monitors, 60)
+    } else {
+        (BTreeMap::new(), 60)
+    };
+    *controls = rebuild_tray(
+        tray_icon,
+        saved_wallpapers_dir,
+        config,
+        current_monitors,
+        &fps_map,
+        global_fps,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_topology_change_if_needed(
+    current_monitors: &mut Vec<MonitorInfo>,
+    monitors_snapshot: &Arc<RwLock<Vec<MonitorInfo>>>,
+    manager: &mut Option<WallpaperManager>,
+    workerw_hwnd: HWND,
+    wp_state: &std::rc::Rc<std::cell::RefCell<AppConfig>>,
+    current_coverage_map: &BTreeMap<MonitorId, bool>,
+    saved_wallpapers_dir: &Path,
+    tray_icon: &tray_icon::TrayIcon,
+    controls: &mut TrayControls,
+) {
+    let next_monitors = enumerate_monitors();
+    let diff = diff_topologies(current_monitors, &next_monitors);
+    let monitor_count_mismatch = manager
+        .as_ref()
+        .map(|m| m.monitor_count() != next_monitors.len())
+        .unwrap_or(false);
+
+    if diff.has_changes() || monitor_count_mismatch {
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::EndMenu();
+        }
+        log_msg(&format!(
+            "[ArcPaper] Display topology changed: added={}, removed={}, changed={}, unchanged={}. Updating layout...",
+            diff.added.len(),
+            diff.removed.len(),
+            diff.changed.len(),
+            diff.unchanged.len()
+        ));
+        *current_monitors = next_monitors.clone();
+        if let Ok(mut snap) = monitors_snapshot.write() {
+            *snap = next_monitors;
+        }
+        sync_manager_and_rebuild_tray(
+            manager,
+            workerw_hwnd,
+            current_monitors,
+            &wp_state.borrow(),
+            current_coverage_map,
+            saved_wallpapers_dir,
+            tray_icon,
+            controls,
+            ManagerSyncMode::ApplyTopology,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_tray_action(
+    action: TrayAction,
+    manager: &mut Option<WallpaperManager>,
+    workerw_hwnd: HWND,
+    current_monitors: &[MonitorInfo],
+    wp_state: &std::rc::Rc<std::cell::RefCell<AppConfig>>,
+    current_coverage_map: &BTreeMap<MonitorId, bool>,
+    saved_wallpapers_dir: &Path,
+    config_path: &Path,
+    tray_icon: &tray_icon::TrayIcon,
+    controls: &mut TrayControls,
+) -> TrayOutcome {
+    match action {
+        TrayAction::UploadWallpaper(target) => {
+            if let Some(source_path) = rfd::FileDialog::new()
+                .add_filter("MP4 Video (*.mp4)", &["mp4"])
+                .set_title("Select MP4 Video File")
+                .pick_file()
+                && let Some(file_name) = source_path.file_name().and_then(|n| n.to_str())
+            {
+                let dest_path = saved_wallpapers_dir.join(file_name);
+                if let Err(e) = std::fs::copy(&source_path, &dest_path) {
+                    log_with_level(LogLevel::Error, &format!("[ArcPaper] Copy failed: {e:?}"));
+                } else {
+                    let mut state = wp_state.borrow_mut();
+                    match &target {
+                        Some(mid) => {
+                            let entry = state.monitors.entry(mid.as_str().to_string()).or_default();
+                            entry.active_video = Some(file_name.to_string());
+                            entry.is_manually_paused = Some(false);
+                        }
+                        None => {
+                            state.active_video = Some(file_name.to_string());
+                            state.is_manually_paused = false;
+                        }
+                    }
+                    save_config(config_path, &state);
+                    drop(state);
+
+                    sync_manager_and_rebuild_tray(
+                        manager,
+                        workerw_hwnd,
+                        current_monitors,
+                        &wp_state.borrow(),
+                        current_coverage_map,
+                        saved_wallpapers_dir,
+                        tray_icon,
+                        controls,
+                        ManagerSyncMode::ApplyTopology,
+                    );
+                }
+            }
+        }
+
+        TrayAction::SelectWallpaper { monitor_id, file } => {
+            let mut state = wp_state.borrow_mut();
+            match &monitor_id {
+                Some(mid) => {
+                    let entry = state.monitors.entry(mid.as_str().to_string()).or_default();
+                    entry.active_video = Some(file);
+                    entry.is_manually_paused = Some(false);
+                }
+                None => {
+                    state.active_video = Some(file);
+                    state.is_manually_paused = false;
+                }
+            }
+            save_config(config_path, &state);
+            drop(state);
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::ApplyTopology,
+            );
+        }
+
+        TrayAction::SetDisplayMode(new_mode) => {
+            let mut state = wp_state.borrow_mut();
+            state.display_mode = new_mode;
+            save_config(config_path, &state);
+            drop(state);
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::ApplyTopology,
+            );
+        }
+
+        TrayAction::TogglePause(target) => {
+            let mut state = wp_state.borrow_mut();
+            match &target {
+                Some(mid) => {
+                    let currently_paused = state.resolve_for_monitor(mid).is_manually_paused;
+                    let entry = state.monitors.entry(mid.as_str().to_string()).or_default();
+                    entry.is_manually_paused = Some(!currently_paused);
+                }
+                None => {
+                    let next = !state.is_manually_paused;
+                    state.is_manually_paused = next;
+                    for ov in state.monitors.values_mut() {
+                        ov.is_manually_paused = None;
+                    }
+                }
+            }
+            save_config(config_path, &state);
+            drop(state);
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::PauseOnly,
+            );
+        }
+
+        TrayAction::SetFit { monitor_id, fit } => {
+            let mut state = wp_state.borrow_mut();
+            match &monitor_id {
+                Some(mid) => {
+                    let ov = state.monitors.entry(mid.as_str().to_string()).or_default();
+                    ov.fit_mode = Some(fit.to_string());
+                }
+                None => {
+                    state.fit_mode = fit.to_string();
+                }
+            }
+            save_config(config_path, &state);
+            drop(state);
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::ApplyTopology,
+            );
+        }
+
+        TrayAction::SetBrightness {
+            monitor_id,
+            brightness,
+        } => {
+            let mut state = wp_state.borrow_mut();
+            match &monitor_id {
+                Some(mid) => {
+                    let ov = state.monitors.entry(mid.as_str().to_string()).or_default();
+                    ov.brightness = Some(brightness);
+                }
+                None => {
+                    state.brightness = brightness;
+                }
+            }
+            save_config(config_path, &state);
+            drop(state);
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::ApplyTopology,
+            );
+        }
+
+        TrayAction::SetSpeed { monitor_id, speed } => {
+            let mut state = wp_state.borrow_mut();
+            match &monitor_id {
+                Some(mid) => {
+                    let ov = state.monitors.entry(mid.as_str().to_string()).or_default();
+                    ov.speed = Some(speed);
+                }
+                None => {
+                    state.speed = speed;
+                }
+            }
+            save_config(config_path, &state);
+            drop(state);
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::ApplyTopology,
+            );
+        }
+
+        TrayAction::SetTargetFps {
+            monitor_id,
+            target_fps,
+        } => {
+            let mut state = wp_state.borrow_mut();
+            match &monitor_id {
+                Some(mid) => {
+                    let ov = state.monitors.entry(mid.as_str().to_string()).or_default();
+                    ov.target_fps = target_fps;
+                }
+                None => {
+                    state.target_fps = target_fps;
+                }
+            }
+            log_fps_limit(target_fps);
+            save_config(config_path, &state);
+            drop(state);
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::ApplyTopology,
+            );
+        }
+
+        TrayAction::CheckUpdates => {
+            std::thread::spawn(check_for_updates);
+        }
+
+        TrayAction::ToggleAutostart => {
+            let res = if is_autostart_enabled() {
+                disable_autostart()
+            } else {
+                enable_autostart()
+            };
+            if let Err(e) = res {
+                log_with_level(
+                    LogLevel::Error,
+                    &format!("[ArcPaper] Auto-start error: {e:?}"),
+                );
+            }
+            controls.autostart_item.set_checked(is_autostart_enabled());
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::RebuildTrayOnly,
+            );
+        }
+
+        TrayAction::Uninstall => {
+            perform_uninstall();
+        }
+
+        TrayAction::Exit => {
+            log_msg("[ArcPaper] Exit requested. Shutting down cleanly...");
+            return TrayOutcome::Exit;
+        }
+    }
+    TrayOutcome::Continue
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -694,5 +1153,51 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_manager_sync_mode_methods() {
+        assert!(ManagerSyncMode::ApplyTopology.requires_topology_sync());
+        assert!(!ManagerSyncMode::PauseOnly.requires_topology_sync());
+        assert!(!ManagerSyncMode::RebuildTrayOnly.requires_topology_sync());
+
+        assert!(ManagerSyncMode::ApplyTopology.requires_manager_sync());
+        assert!(ManagerSyncMode::PauseOnly.requires_manager_sync());
+        assert!(!ManagerSyncMode::RebuildTrayOnly.requires_manager_sync());
+    }
+
+    #[test]
+    fn test_compute_effective_paused_map_logic() {
+        let mon1 = crate::display::MonitorInfo {
+            id: crate::display::MonitorId("MON_1".into()),
+            friendly_name: "Display 1".into(),
+            gdi_name: r"\\.\DISPLAY1".into(),
+            rect: crate::display::DisplayRect {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            },
+            dpi: 96,
+            is_primary: true,
+        };
+        let monitors = vec![mon1.clone()];
+        let mut config = crate::app::config::AppConfig::default();
+        let mut coverage = BTreeMap::new();
+
+        // Not covered, not manually paused
+        let map = compute_effective_paused_map(&monitors, &config, &coverage);
+        assert_eq!(map.get(&mon1.id), Some(&false));
+
+        // Covered
+        coverage.insert(mon1.id.clone(), true);
+        let map = compute_effective_paused_map(&monitors, &config, &coverage);
+        assert_eq!(map.get(&mon1.id), Some(&true));
+
+        // Not covered, manually paused
+        coverage.insert(mon1.id.clone(), false);
+        config.is_manually_paused = true;
+        let map = compute_effective_paused_map(&monitors, &config, &coverage);
+        assert_eq!(map.get(&mon1.id), Some(&true));
     }
 }

@@ -1,7 +1,7 @@
-use arc_paper::PauseReason;
 use arc_paper::arc_player::{LoopController, ScreenFit};
 #[cfg(windows)]
 use arc_paper::workerw;
+use arc_paper::{ArcPaperEventHost, HostEvent, PauseReason};
 
 #[test]
 fn library_crate_exports_core_modules() {
@@ -12,6 +12,13 @@ fn library_crate_exports_core_modules() {
 
     // Verify PauseReason re-exports
     assert_eq!(PauseReason::default(), arc_paper::app::PauseReason::empty());
+
+    // Verify HostEvent and ArcPaperEventHost re-exports
+    assert_eq!(
+        HostEvent::DisplayTopologyDirty,
+        arc_paper::app::HostEvent::DisplayTopologyDirty
+    );
+    let _ = ArcPaperEventHost::new(|_event| {});
 
     #[cfg(windows)]
     {
