@@ -62,3 +62,4 @@ $RECYCLE.BIN/
 # ─── Local Testing & Utility Scripts ──────────────────────────────────────────
 measure.ps1
 run.bat
+.superpowers/
