@@ -1,3 +1,4 @@
+use arc_paper::PauseReason;
 use arc_paper::arc_player::{LoopController, ScreenFit};
 #[cfg(windows)]
 use arc_paper::workerw;
@@ -8,6 +9,9 @@ fn library_crate_exports_core_modules() {
     let (idx0, pts0, wrap0) = ctrl.advance(100);
     assert_eq!((idx0, pts0, wrap0), (0, 0, false));
     assert_eq!(ScreenFit::from_str_mode("contain"), ScreenFit::Contain);
+
+    // Verify PauseReason re-exports
+    assert_eq!(PauseReason::default(), arc_paper::app::PauseReason::empty());
 
     #[cfg(windows)]
     {

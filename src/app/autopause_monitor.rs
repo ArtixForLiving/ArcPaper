@@ -1,5 +1,6 @@
 //! Smart Auto-Pause foreground monitor and manual-pause precedence rules.
 
+use crate::app::pause::{PauseReason, resolve_effective_monitor_pause};
 use crate::display::{DisplayRect, MonitorId, MonitorInfo};
 use std::collections::BTreeMap;
 
@@ -84,7 +85,17 @@ pub fn evaluate_monitor_coverage(
 
 /// Computes whether playback must be paused given foreground coverage and manual pause state.
 pub fn resolve_effective_pause(is_covered: bool, is_manually_paused: bool) -> bool {
-    is_covered || is_manually_paused
+    let global = if is_manually_paused {
+        PauseReason::MANUAL
+    } else {
+        PauseReason::empty()
+    };
+    let monitor = if is_covered {
+        PauseReason::COVERED
+    } else {
+        PauseReason::empty()
+    };
+    resolve_effective_monitor_pause(global, monitor)
 }
 
 /// Resolves playback pause state and `is_auto_paused` flag when the user toggles manual pause from the tray.

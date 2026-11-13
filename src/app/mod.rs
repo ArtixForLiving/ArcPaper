@@ -6,6 +6,8 @@ pub mod autostart;
 pub mod config;
 pub mod log;
 pub mod paths;
+pub mod pause;
+pub use pause::PauseReason;
 #[cfg(windows)]
 pub mod tray;
 pub mod uninstall;
