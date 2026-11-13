@@ -49,6 +49,12 @@ pub trait SystemProbe: Send + Sync {
 
     /// Returns the current console display state (On, Dimmed, or Off).
     fn get_console_display_state(&self) -> ConsoleDisplayState;
+
+    /// Returns the current Windows Shell User Notification State (QUNS), or `None` if query failed.
+    fn query_quns(&self) -> Option<i32>;
+
+    /// Returns `true` if Windows client area animations are enabled.
+    fn is_animation_enabled(&self) -> bool;
 }
 
 /// Production implementation of [`SystemProbe`] calling Win32 platform APIs.
@@ -107,6 +113,14 @@ impl SystemProbe for WindowsSystemProbe {
         // Without an asynchronous power setting notification event, the active console display is assumed On.
         ConsoleDisplayState::On
     }
+
+    fn query_quns(&self) -> Option<i32> {
+        crate::power::quns::query_user_notification_state()
+    }
+
+    fn is_animation_enabled(&self) -> bool {
+        crate::power::motion::is_client_area_animation_enabled()
+    }
 }
 
 /// Test mock implementation of [`SystemProbe`] with configurable static states.
@@ -115,6 +129,8 @@ pub struct MockSystemProbe {
     pub power_status: PowerStatus,
     pub is_remote: bool,
     pub display_state: ConsoleDisplayState,
+    pub quns_state: Option<i32>,
+    pub animation_enabled: bool,
 }
 
 impl MockSystemProbe {
@@ -128,7 +144,21 @@ impl MockSystemProbe {
             power_status,
             is_remote,
             display_state,
+            quns_state: None,
+            animation_enabled: true,
         }
+    }
+
+    /// Builder method configuring the mock QUNS state.
+    pub fn with_quns(mut self, state: Option<i32>) -> Self {
+        self.quns_state = state;
+        self
+    }
+
+    /// Builder method configuring the mock animation enabled status.
+    pub fn with_animation(mut self, enabled: bool) -> Self {
+        self.animation_enabled = enabled;
+        self
     }
 }
 
@@ -143,6 +173,14 @@ impl SystemProbe for MockSystemProbe {
 
     fn get_console_display_state(&self) -> ConsoleDisplayState {
         self.display_state
+    }
+
+    fn query_quns(&self) -> Option<i32> {
+        self.quns_state
+    }
+
+    fn is_animation_enabled(&self) -> bool {
+        self.animation_enabled
     }
 }
 
@@ -173,10 +211,14 @@ mod tests {
             battery_percent: Some(42),
             has_battery: true,
         };
-        let probe = MockSystemProbe::new(status, true, ConsoleDisplayState::Off);
+        let probe = MockSystemProbe::new(status, true, ConsoleDisplayState::Off)
+            .with_quns(Some(3))
+            .with_animation(false);
         assert_eq!(probe.get_power_status(), status);
         assert!(probe.is_remote_session());
         assert_eq!(probe.get_console_display_state(), ConsoleDisplayState::Off);
+        assert_eq!(probe.query_quns(), Some(3));
+        assert!(!probe.is_animation_enabled());
     }
 
     #[test]
@@ -185,5 +227,7 @@ mod tests {
         let _ = probe.get_power_status();
         let _ = probe.is_remote_session();
         assert_eq!(probe.get_console_display_state(), ConsoleDisplayState::On);
+        let _ = probe.query_quns();
+        let _ = probe.is_animation_enabled();
     }
 }

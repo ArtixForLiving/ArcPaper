@@ -35,6 +35,11 @@ fn library_crate_exports_core_modules() {
         arc_paper::evaluate_session_pause(false, false, false, false),
         arc_paper::PauseReason::empty()
     );
+    assert!(!arc_paper::is_quns_exclusive_fullscreen(
+        arc_paper::power::QUNS_NOT_PRESENT,
+        false
+    ));
+    assert!(!arc_paper::is_reduce_motion_enabled(false));
 
     #[cfg(windows)]
     {

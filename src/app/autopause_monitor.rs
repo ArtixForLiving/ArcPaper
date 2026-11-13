@@ -83,6 +83,87 @@ pub fn evaluate_monitor_coverage(
     coverage
 }
 
+/// Evaluates all `monitors` against window observations and checks QUNS with a known foreground window rect (FR-304).
+///
+/// If `detect_exclusive_fullscreen` is true and QUNS indicates an exclusive fullscreen / busy state,
+/// assigns `PauseReason::EXCLUSIVE_FULLSCREEN` to the monitor where the foreground window resides.
+/// Other monitors are NOT paused.
+pub fn evaluate_monitor_coverage_with_quns_rect(
+    monitors: &[MonitorInfo],
+    observations: &[WindowObservation],
+    quns_state: Option<i32>,
+    fg_rect: Option<DisplayRect>,
+    detect_exclusive_fullscreen: bool,
+    treat_presentation_as_busy: bool,
+) -> (BTreeMap<MonitorId, bool>, BTreeMap<MonitorId, PauseReason>) {
+    let mut coverage = evaluate_monitor_coverage(monitors, observations);
+    let mut reasons: BTreeMap<MonitorId, PauseReason> = monitors
+        .iter()
+        .map(|m| {
+            let is_cov = coverage.get(&m.id).copied().unwrap_or(false);
+            let r = if is_cov {
+                PauseReason::COVERED
+            } else {
+                PauseReason::empty()
+            };
+            (m.id.clone(), r)
+        })
+        .collect();
+
+    if detect_exclusive_fullscreen
+        && let Some(state) = quns_state
+        && crate::power::quns::is_quns_exclusive_fullscreen(state, treat_presentation_as_busy)
+        && let Some(rect) = fg_rect
+        && let Some(target_mon_id) = crate::power::quns::find_monitor_for_rect(rect, monitors)
+    {
+        coverage.insert(target_mon_id.clone(), true);
+        if let Some(r) = reasons.get_mut(&target_mon_id) {
+            r.insert(PauseReason::EXCLUSIVE_FULLSCREEN);
+        }
+    }
+
+    (coverage, reasons)
+}
+
+/// Evaluates all `monitors` against window observations and checks QUNS for foreground window `fg_hwnd` (FR-304).
+#[cfg(windows)]
+pub fn evaluate_monitor_coverage_with_quns(
+    monitors: &[MonitorInfo],
+    observations: &[WindowObservation],
+    quns_state: Option<i32>,
+    fg_hwnd: Option<HWND>,
+    detect_exclusive_fullscreen: bool,
+    treat_presentation_as_busy: bool,
+) -> (BTreeMap<MonitorId, bool>, BTreeMap<MonitorId, PauseReason>) {
+    let mut coverage = evaluate_monitor_coverage(monitors, observations);
+    let mut reasons: BTreeMap<MonitorId, PauseReason> = monitors
+        .iter()
+        .map(|m| {
+            let is_cov = coverage.get(&m.id).copied().unwrap_or(false);
+            let r = if is_cov {
+                PauseReason::COVERED
+            } else {
+                PauseReason::empty()
+            };
+            (m.id.clone(), r)
+        })
+        .collect();
+
+    if detect_exclusive_fullscreen
+        && let Some(state) = quns_state
+        && crate::power::quns::is_quns_exclusive_fullscreen(state, treat_presentation_as_busy)
+        && let Some(fg) = fg_hwnd
+        && let Some(target_mon_id) = crate::power::quns::find_monitor_for_window(fg, monitors)
+    {
+        coverage.insert(target_mon_id.clone(), true);
+        if let Some(r) = reasons.get_mut(&target_mon_id) {
+            r.insert(PauseReason::EXCLUSIVE_FULLSCREEN);
+        }
+    }
+
+    (coverage, reasons)
+}
+
 /// Computes whether playback must be paused given foreground coverage and manual pause state.
 pub fn resolve_effective_pause(is_covered: bool, is_manually_paused: bool) -> bool {
     let global = if is_manually_paused {
@@ -961,5 +1042,128 @@ mod tests {
     fn test_is_window_observable_smoke() {
         // Null window should not be observable
         assert!(!unsafe { is_window_observable(HWND::default(), std::process::id()) });
+    }
+
+    #[test]
+    fn test_evaluate_monitor_coverage_with_quns_rect_maps_exclusively_to_fg_monitor() {
+        let mon1 = MonitorInfo {
+            id: MonitorId("MON_1".into()),
+            friendly_name: "Display 1".into(),
+            gdi_name: r"\\.\DISPLAY1".into(),
+            rect: DisplayRect {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            },
+            dpi: 96,
+            is_primary: true,
+        };
+        let mon2 = MonitorInfo {
+            id: MonitorId("MON_2".into()),
+            friendly_name: "Display 2".into(),
+            gdi_name: r"\\.\DISPLAY2".into(),
+            rect: DisplayRect {
+                left: 1920,
+                top: 0,
+                right: 3840,
+                bottom: 1080,
+            },
+            dpi: 96,
+            is_primary: false,
+        };
+        let monitors = vec![mon1.clone(), mon2.clone()];
+        let observations = vec![]; // No covering windows
+
+        // 1. QUNS running D3D game on Mon 1 rect
+        let fg_rect_mon1 = Some(DisplayRect {
+            left: 100,
+            top: 100,
+            right: 1000,
+            bottom: 800,
+        });
+        let (cov1, reasons1) = evaluate_monitor_coverage_with_quns_rect(
+            &monitors,
+            &observations,
+            Some(crate::power::quns::QUNS_RUNNING_D3D_FULL_SCREEN),
+            fg_rect_mon1,
+            true,
+            false,
+        );
+
+        assert_eq!(cov1.get(&mon1.id), Some(&true));
+        assert_eq!(cov1.get(&mon2.id), Some(&false));
+        assert_eq!(
+            reasons1.get(&mon1.id),
+            Some(&PauseReason::EXCLUSIVE_FULLSCREEN)
+        );
+        assert_eq!(reasons1.get(&mon2.id), Some(&PauseReason::empty()));
+
+        // 2. QUNS game on Mon 2 rect
+        let fg_rect_mon2 = Some(DisplayRect {
+            left: 2100,
+            top: 100,
+            right: 3000,
+            bottom: 800,
+        });
+        let (cov2, reasons2) = evaluate_monitor_coverage_with_quns_rect(
+            &monitors,
+            &observations,
+            Some(crate::power::quns::QUNS_BUSY),
+            fg_rect_mon2,
+            true,
+            false,
+        );
+
+        assert_eq!(cov2.get(&mon1.id), Some(&false));
+        assert_eq!(cov2.get(&mon2.id), Some(&true));
+        assert_eq!(reasons2.get(&mon1.id), Some(&PauseReason::empty()));
+        assert_eq!(
+            reasons2.get(&mon2.id),
+            Some(&PauseReason::EXCLUSIVE_FULLSCREEN)
+        );
+
+        // 3. Presentation mode when treat_presentation_as_busy = false -> neither paused
+        let (cov3, reasons3) = evaluate_monitor_coverage_with_quns_rect(
+            &monitors,
+            &observations,
+            Some(crate::power::quns::QUNS_PRESENTATION_MODE),
+            fg_rect_mon1,
+            true,
+            false,
+        );
+        assert_eq!(cov3.get(&mon1.id), Some(&false));
+        assert_eq!(cov3.get(&mon2.id), Some(&false));
+        assert_eq!(reasons3.get(&mon1.id), Some(&PauseReason::empty()));
+        assert_eq!(reasons3.get(&mon2.id), Some(&PauseReason::empty()));
+
+        // 4. Presentation mode when treat_presentation_as_busy = true -> Mon 1 paused
+        let (cov4, reasons4) = evaluate_monitor_coverage_with_quns_rect(
+            &monitors,
+            &observations,
+            Some(crate::power::quns::QUNS_PRESENTATION_MODE),
+            fg_rect_mon1,
+            true,
+            true,
+        );
+        assert_eq!(cov4.get(&mon1.id), Some(&true));
+        assert_eq!(cov4.get(&mon2.id), Some(&false));
+        assert_eq!(
+            reasons4.get(&mon1.id),
+            Some(&PauseReason::EXCLUSIVE_FULLSCREEN)
+        );
+
+        // 5. detect_exclusive_fullscreen = false -> neither paused even if game is running
+        let (cov5, reasons5) = evaluate_monitor_coverage_with_quns_rect(
+            &monitors,
+            &observations,
+            Some(crate::power::quns::QUNS_RUNNING_D3D_FULL_SCREEN),
+            fg_rect_mon1,
+            false,
+            false,
+        );
+        assert_eq!(cov5.get(&mon1.id), Some(&false));
+        assert_eq!(cov5.get(&mon2.id), Some(&false));
+        assert_eq!(reasons5.get(&mon1.id), Some(&PauseReason::empty()));
     }
 }

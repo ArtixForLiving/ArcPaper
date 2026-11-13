@@ -48,6 +48,8 @@ mod imp {
         is_remote: bool,
         is_display_off: bool,
         is_suspended: bool,
+        follow_reduce_motion: bool,
+        is_reduce_motion: bool,
         last_global_reasons: PauseReason,
     }
 
@@ -60,7 +62,11 @@ mod imp {
                 self.is_display_off,
                 self.is_suspended,
             );
-            let new_reasons = battery_reasons | session_reasons;
+            let motion_reasons = crate::power::motion::evaluate_reduce_motion_pause(
+                self.follow_reduce_motion,
+                !self.is_reduce_motion,
+            );
+            let new_reasons = battery_reasons | session_reasons | motion_reasons;
             if new_reasons != self.last_global_reasons {
                 self.last_global_reasons = new_reasons;
                 (self.on_event)(HostEvent::GlobalPauseReasonsChanged(new_reasons));
@@ -107,6 +113,11 @@ mod imp {
                     (ctx.on_event)(HostEvent::DisplayTopologyDirty);
                     return LRESULT(0);
                 } else if msg == WM_SETTINGCHANGE {
+                    if ctx.follow_reduce_motion {
+                        let probe = WindowsSystemProbe::new();
+                        ctx.is_reduce_motion = !probe.is_animation_enabled();
+                        ctx.recompute_and_dispatch();
+                    }
                     if wparam.0 == SPI_SETWORKAREA || wparam.0 == SPI_SETLOGICALDPIOVERRIDE {
                         (ctx.on_event)(HostEvent::DisplayTopologyDirty);
                         return LRESULT(0);
@@ -240,10 +251,16 @@ mod imp {
                 let probe = WindowsSystemProbe::new();
                 let power_status = probe.get_power_status();
                 let is_remote = probe.is_remote_session();
+                let is_reduce_motion = !probe.is_animation_enabled();
+                let follow_reduce_motion = false;
                 let battery_policy = BatteryPolicy::PauseOnBatterySaver;
                 let battery_reasons = evaluate_battery_pause(battery_policy, &power_status);
                 let session_reasons = evaluate_session_pause(false, is_remote, false, false);
-                let initial_reasons = battery_reasons | session_reasons;
+                let motion_reasons = crate::power::motion::evaluate_reduce_motion_pause(
+                    follow_reduce_motion,
+                    !is_reduce_motion,
+                );
+                let initial_reasons = battery_reasons | session_reasons | motion_reasons;
 
                 let ctx = Box::into_raw(Box::new(EventHostContext {
                     on_event: Box::new(on_event),
@@ -254,6 +271,8 @@ mod imp {
                     is_remote,
                     is_display_off: false,
                     is_suspended: false,
+                    follow_reduce_motion,
+                    is_reduce_motion,
                     last_global_reasons: initial_reasons,
                 }));
 
@@ -340,6 +359,18 @@ mod imp {
                 }
             }
         }
+
+        /// Configures whether ArcPaper respects Windows "Show animations" setting.
+        pub fn set_follow_reduce_motion(&mut self, follow: bool) {
+            unsafe {
+                if !self.ctx.is_null() {
+                    (*self.ctx).follow_reduce_motion = follow;
+                    let probe = WindowsSystemProbe::new();
+                    (*self.ctx).is_reduce_motion = !probe.is_animation_enabled();
+                    (*self.ctx).recompute_and_dispatch();
+                }
+            }
+        }
     }
 
     impl Drop for ArcPaperEventHost {
@@ -389,6 +420,8 @@ impl ArcPaperEventHost {
     }
 
     pub fn set_battery_policy(&mut self, _policy: crate::power::BatteryPolicy) {}
+
+    pub fn set_follow_reduce_motion(&mut self, _follow: bool) {}
 }
 
 #[cfg(test)]
@@ -441,6 +474,10 @@ mod tests {
         assert!(reasons.is_global() || reasons.is_empty());
 
         host.set_battery_policy(crate::power::BatteryPolicy::AlwaysPlay);
+        host.set_follow_reduce_motion(true);
+        let reasons_with_motion = host.current_global_reasons();
+        assert!(reasons_with_motion.is_global() || reasons_with_motion.is_empty());
+        host.set_follow_reduce_motion(false);
 
         drop(host);
     }

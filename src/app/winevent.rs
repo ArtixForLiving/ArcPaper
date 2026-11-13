@@ -23,17 +23,19 @@ use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook, UnhookWi
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, EVENT_OBJECT_DESTROY, EVENT_OBJECT_UNCLOAKED, EVENT_SYSTEM_FOREGROUND,
-    EVENT_SYSTEM_MINIMIZEEND, GA_ROOT, GetAncestor, GetMessageW, KillTimer, MSG,
-    PEEK_MESSAGE_REMOVE_TYPE, PeekMessageW, PostThreadMessageW, SetTimer, TranslateMessage,
+    EVENT_SYSTEM_MINIMIZEEND, GA_ROOT, GetAncestor, GetForegroundWindow, GetMessageW, KillTimer,
+    MSG, PEEK_MESSAGE_REMOVE_TYPE, PeekMessageW, PostThreadMessageW, SetTimer, TranslateMessage,
     WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_QUIT, WM_TIMER, WM_USER,
 };
 
 #[cfg(windows)]
 use crate::app::autopause_monitor::{
-    collect_window_observations, evaluate_monitor_coverage, is_window_observable,
+    collect_window_observations, evaluate_monitor_coverage_with_quns, is_window_observable,
 };
 #[cfg(windows)]
 use crate::display::{MonitorId, MonitorInfo};
+#[cfg(windows)]
+use crate::power::{SystemProbe, WindowsSystemProbe};
 
 /// Win32 Event constants monitored by ArcPaper.
 pub const EVENT_SYSTEM_FOREGROUND_ID: u32 = 0x0003;
@@ -370,8 +372,17 @@ where
             };
             let initial_observations =
                 unsafe { collect_window_observations(&initial_monitors, our_pid) };
-            let initial_coverage =
-                evaluate_monitor_coverage(&initial_monitors, &initial_observations);
+            let fg = unsafe { GetForegroundWindow() };
+            let fg_hwnd = if !fg.0.is_null() { Some(fg) } else { None };
+            let quns_state = WindowsSystemProbe::new().query_quns();
+            let (initial_coverage, _) = evaluate_monitor_coverage_with_quns(
+                &initial_monitors,
+                &initial_observations,
+                quns_state,
+                fg_hwnd,
+                true,
+                false,
+            );
             let mut last_coverage = Some(initial_coverage.clone());
             on_cover_change(initial_coverage);
 
@@ -410,7 +421,17 @@ where
                             };
                             let observations =
                                 unsafe { collect_window_observations(&monitors, our_pid) };
-                            let coverage = evaluate_monitor_coverage(&monitors, &observations);
+                            let fg = unsafe { GetForegroundWindow() };
+                            let fg_hwnd = if !fg.0.is_null() { Some(fg) } else { None };
+                            let quns_state = WindowsSystemProbe::new().query_quns();
+                            let (coverage, _) = evaluate_monitor_coverage_with_quns(
+                                &monitors,
+                                &observations,
+                                quns_state,
+                                fg_hwnd,
+                                true,
+                                false,
+                            );
 
                             let state_changed = last_coverage.as_ref() != Some(&coverage);
                             if state_changed {
