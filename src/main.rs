@@ -14,15 +14,13 @@ mod windows_app {
         log_with_level,
     };
     use arc_paper::app::paths::{
-        configure_process_and_dpi, get_app_dir, get_config_path, get_saved_wallpapers_dir,
-        list_mp4_files,
+        CliArgs, acquire_single_instance_mutex_or_exit, configure_process_and_dpi, get_app_dir,
+        get_config_path, get_saved_wallpapers_dir, list_mp4_files,
     };
-    #[allow(unused_imports)]
-    pub(crate) use arc_paper::app::tray::ManagerSyncMode;
     use arc_paper::app::tray::{
-        TrayOutcome, build_initial_tray_icon, collect_native_fps,
+        DiagPauseConfig, TrayOutcome, build_initial_tray_icon, collect_native_fps,
         compute_effective_paused_map_with_reasons, handle_topology_change_if_needed,
-        handle_tray_action, sync_effective_pause, update_tray_tooltip,
+        handle_tray_action, sync_and_log_effective_pause, update_tray_tooltip,
     };
     use arc_paper::arc_player::WallpaperManager;
     use arc_paper::display::topology::DisplayDebounce;
@@ -45,6 +43,7 @@ mod windows_app {
     }
 
     pub fn run() {
+        let cli_args = CliArgs::parse();
         configure_process_and_dpi();
         init_logger(
             get_app_dir(),
@@ -52,31 +51,18 @@ mod windows_app {
             DEFAULT_MAX_LOG_BACKUPS,
         );
 
-        let _instance_mutex = unsafe {
-            use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
-            use windows::Win32::System::Threading::CreateMutexW;
-            use windows::core::w;
-
-            let handle = CreateMutexW(None, true, w!("ArcPaper_SingleInstance_Mutex"));
-            if GetLastError() == ERROR_ALREADY_EXISTS {
-                log_msg(
-                    "[ArcPaper] Another instance of ArcPaper is already running. Exiting cleanly.",
-                );
-                std::process::exit(0);
-            }
-            handle
-        };
+        let _instance_mutex = acquire_single_instance_mutex_or_exit();
 
         std::panic::set_hook(Box::new(|info| {
             log_with_level(LogLevel::Error, &format!("[PANIC] {:?}", info));
         }));
 
         log_msg("[ArcPaper] Starting ArcPaper Native Wallpaper Engine");
-        unsafe {
-            use windows::Win32::System::Threading::{
-                BELOW_NORMAL_PRIORITY_CLASS, GetCurrentProcess, SetPriorityClass,
-            };
-            let _ = SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
+        if cli_args.diag_pause {
+            log_msg("[ArcPaper] Diagnostic pause latency logging enabled (--diag-pause)");
+        }
+        if cli_args.force_polling {
+            log_msg("[ArcPaper] Forced polling window monitor mode requested (--force-polling)");
         }
 
         let saved_wallpapers_dir = get_saved_wallpapers_dir();
@@ -133,7 +119,7 @@ mod windows_app {
             ));
         }
 
-        let effective_paused = compute_effective_paused_map_with_reasons(
+        let mut current_effective_paused = compute_effective_paused_map_with_reasons(
             &current_monitors,
             &wp_state.borrow(),
             &current_coverage_map,
@@ -145,7 +131,7 @@ mod windows_app {
                 workerw_hwnd,
                 &current_monitors,
                 &wp_state.borrow(),
-                &effective_paused,
+                &current_effective_paused,
                 &saved_wallpapers_dir,
             );
         }
@@ -218,12 +204,15 @@ mod windows_app {
                         }
                     }
                     current_coverage_map = coverage_map;
-                    sync_effective_pause(
+                    let latency_ms = arc_paper::app::winevent::take_last_transition_latency_ms();
+                    sync_and_log_effective_pause(
                         &mut manager,
                         &current_monitors,
                         &wp_state.borrow(),
                         &current_coverage_map,
                         current_global_reasons,
+                        &mut current_effective_paused,
+                        DiagPauseConfig::new(latency_ms, cli_args.diag_pause),
                     );
                     let is_p = !current_global_reasons.is_empty() || wp_state.borrow().is_manually_paused;
                     let reasons = if wp_state.borrow().is_manually_paused { current_global_reasons | PauseReason::MANUAL } else { current_global_reasons };
@@ -247,12 +236,14 @@ mod windows_app {
                             log_msg("[ArcPaper] Global pause reasons cleared. Resuming active playback.");
                         }
                     }
-                    sync_effective_pause(
+                    sync_and_log_effective_pause(
                         &mut manager,
                         &current_monitors,
                         &wp_state.borrow(),
                         &current_coverage_map,
                         current_global_reasons,
+                        &mut current_effective_paused,
+                        DiagPauseConfig::new(None, cli_args.diag_pause),
                     );
                     let is_p = !current_global_reasons.is_empty() || wp_state.borrow().is_manually_paused;
                     let reasons = if wp_state.borrow().is_manually_paused { current_global_reasons | PauseReason::MANUAL } else { current_global_reasons };
@@ -269,12 +260,14 @@ mod windows_app {
                         .as_mut()
                         .is_none_or(|m| m.validate_or_recover_devices());
                     if device_ok {
-                        sync_effective_pause(
+                        sync_and_log_effective_pause(
                             &mut manager,
                             &current_monitors,
                             &wp_state.borrow(),
                             &current_coverage_map,
                             current_global_reasons,
+                            &mut current_effective_paused,
+                            DiagPauseConfig::new(None, cli_args.diag_pause),
                         );
                     }
                 }
@@ -298,6 +291,7 @@ mod windows_app {
                             &current_coverage_map,
                             current_global_reasons,
                         );
+                        current_effective_paused = effective_paused.clone();
                         mgr.apply_topology_and_config(
                             new_workerw,
                             &current_monitors,
@@ -376,20 +370,4 @@ mod windows_app {
 #[cfg(windows)]
 fn main() {
     windows_app::run();
-}
-
-#[cfg(all(test, windows))]
-mod tests {
-    use super::windows_app::*;
-
-    #[test]
-    fn test_manager_sync_mode_flags() {
-        assert!(ManagerSyncMode::ApplyTopology.requires_topology_sync());
-        assert!(!ManagerSyncMode::PauseOnly.requires_topology_sync());
-        assert!(!ManagerSyncMode::RebuildTrayOnly.requires_topology_sync());
-
-        assert!(ManagerSyncMode::ApplyTopology.requires_manager_sync());
-        assert!(ManagerSyncMode::PauseOnly.requires_manager_sync());
-        assert!(!ManagerSyncMode::RebuildTrayOnly.requires_manager_sync());
-    }
 }

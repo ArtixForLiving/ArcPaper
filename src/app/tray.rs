@@ -728,6 +728,64 @@ pub fn sync_effective_pause(
     effective
 }
 
+/// Diagnostic and telemetry options for pause transition logging.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiagPauseConfig {
+    pub latency_ms: Option<u64>,
+    pub is_diag: bool,
+}
+
+impl DiagPauseConfig {
+    pub fn new(latency_ms: Option<u64>, is_diag: bool) -> Self {
+        Self {
+            latency_ms,
+            is_diag,
+        }
+    }
+}
+
+/// Applies effective pause states across all monitors, logs any state transitions,
+/// and trims working set if all monitors are paused.
+pub fn sync_and_log_effective_pause(
+    manager: &mut Option<WallpaperManager>,
+    monitors: &[MonitorInfo],
+    config: &AppConfig,
+    coverage: &BTreeMap<MonitorId, bool>,
+    global_reasons: PauseReason,
+    prev_effective: &mut BTreeMap<MonitorId, bool>,
+    diag: DiagPauseConfig,
+) -> BTreeMap<MonitorId, bool> {
+    let effective = sync_effective_pause(manager, monitors, config, coverage, global_reasons);
+    for mon in monitors {
+        let was_paused = prev_effective.get(&mon.id).copied().unwrap_or(false);
+        let is_paused = effective.get(&mon.id).copied().unwrap_or(false);
+        if was_paused != is_paused {
+            let reason_label = if is_paused {
+                let resolved = config.resolve_for_monitor(&mon.id);
+                let mut reasons = global_reasons;
+                if resolved.is_manually_paused {
+                    reasons.insert(PauseReason::MANUAL);
+                }
+                if coverage.get(&mon.id).copied().unwrap_or(false) {
+                    reasons.insert(PauseReason::COVERED);
+                }
+                reasons.dominant_reason_label()
+            } else {
+                None
+            };
+            crate::app::log::log_pause_transition(
+                &mon.friendly_name,
+                is_paused,
+                reason_label,
+                diag.latency_ms,
+                diag.is_diag,
+            );
+        }
+    }
+    *prev_effective = effective.clone();
+    effective
+}
+
 pub fn collect_native_fps(
     manager: &WallpaperManager,
     monitors: &[MonitorInfo],
@@ -1693,5 +1751,55 @@ mod tests {
             format_tray_tooltip(true, PauseReason::SUSPENDED | PauseReason::BATTERY_SAVER),
             "ArcPaper - Paused (System Suspended)"
         );
+    }
+
+    #[test]
+    fn test_sync_and_log_effective_pause_transitions() {
+        let mon = MonitorInfo {
+            id: MonitorId::from("mon-1"),
+            friendly_name: "Primary Display".to_string(),
+            gdi_name: r"\\.\DISPLAY1".to_string(),
+            rect: crate::display::DisplayRect {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            },
+            dpi: 96,
+            is_primary: true,
+        };
+        let monitors = vec![mon.clone()];
+        let config = AppConfig::default();
+        let mut coverage = BTreeMap::new();
+        let mut prev_effective = BTreeMap::new();
+        let mut mgr = None;
+
+        // Transition: Unpaused -> Paused (Window Covered)
+        coverage.insert(mon.id.clone(), true);
+        let eff = sync_and_log_effective_pause(
+            &mut mgr,
+            &monitors,
+            &config,
+            &coverage,
+            PauseReason::empty(),
+            &mut prev_effective,
+            DiagPauseConfig::new(Some(45), true),
+        );
+        assert_eq!(eff.get(&mon.id), Some(&true));
+        assert_eq!(prev_effective.get(&mon.id), Some(&true));
+
+        // Transition: Paused -> Unpaused (Desktop Visible)
+        coverage.insert(mon.id.clone(), false);
+        let eff2 = sync_and_log_effective_pause(
+            &mut mgr,
+            &monitors,
+            &config,
+            &coverage,
+            PauseReason::empty(),
+            &mut prev_effective,
+            DiagPauseConfig::new(Some(35), true),
+        );
+        assert_eq!(eff2.get(&mon.id), Some(&false));
+        assert_eq!(prev_effective.get(&mon.id), Some(&false));
     }
 }

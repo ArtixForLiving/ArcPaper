@@ -37,7 +37,7 @@ pub struct RotatingLogger {
     log_dir: PathBuf,
     max_bytes: u64,
     max_backups: usize,
-    last_throttled: HashMap<&'static str, Instant>,
+    last_throttled: HashMap<String, Instant>,
 }
 
 impl RotatingLogger {
@@ -110,7 +110,7 @@ impl RotatingLogger {
     /// Writes a log entry only if `cooldown` has elapsed since the previous entry for `key`.
     pub fn write_throttled(
         &mut self,
-        key: &'static str,
+        key: &str,
         cooldown: Duration,
         level: LogLevel,
         msg: &str,
@@ -121,9 +121,41 @@ impl RotatingLogger {
         {
             return false;
         }
-        self.last_throttled.insert(key, now);
+        self.last_throttled.insert(key.to_string(), now);
         self.write(level, msg);
         true
+    }
+
+    /// Formats and logs an auto-pause transition, writing diagnostic output if enabled.
+    pub fn log_pause_transition(
+        &mut self,
+        target: &str,
+        is_paused: bool,
+        dominant_reason: Option<&str>,
+        latency_ms: Option<u64>,
+        is_diag: bool,
+    ) -> bool {
+        let transition = if is_paused { "PAUSED" } else { "RESUMED" };
+        let reason = dominant_reason.unwrap_or("None");
+        let msg =
+            format!("[ArcPaper] Pause transition: {target} -> {transition} [Reason: {reason}]");
+        let throttle_key = format!("pause_trans:{target}:{transition}");
+        let logged = self.write_throttled(
+            &throttle_key,
+            Duration::from_millis(50),
+            LogLevel::Info,
+            &msg,
+        );
+        if logged
+            && is_diag
+            && let Some(lat) = latency_ms
+        {
+            let diag_msg = format!(
+                "[ArcPaper] [DIAG_PAUSE] Target={target} Latency={lat}ms Transition={transition} Reason={reason}"
+            );
+            self.write(LogLevel::Info, &diag_msg);
+        }
+        logged
     }
 }
 
@@ -158,7 +190,7 @@ pub fn log_with_level(level: LogLevel, msg: &str) {
 }
 
 /// Logs a rate-limited message keyed by `key` using the global logger.
-pub fn log_throttled(key: &'static str, cooldown: Duration, level: LogLevel, msg: &str) {
+pub fn log_throttled(key: &str, cooldown: Duration, level: LogLevel, msg: &str) {
     if let Ok(mut guard) = GLOBAL_LOGGER.lock() {
         let logger = guard.get_or_insert_with(|| {
             RotatingLogger::new(
@@ -168,6 +200,32 @@ pub fn log_throttled(key: &'static str, cooldown: Duration, level: LogLevel, msg
             )
         });
         logger.write_throttled(key, cooldown, level, msg);
+    }
+}
+
+/// Logs a structured pause state transition and optional diagnostic latency metrics.
+///
+/// Output format:
+/// `[ArcPaper] Pause transition: {target} -> {PAUSED|RESUMED} [Reason: {reason}]`
+///
+/// If `is_diag` is true and `latency_ms` is `Some`:
+/// `[ArcPaper] [DIAG_PAUSE] Target={target} Latency={latency_ms}ms Transition={PAUSED|RESUMED} Reason={reason}`
+pub fn log_pause_transition(
+    target: &str,
+    is_paused: bool,
+    dominant_reason: Option<&str>,
+    latency_ms: Option<u64>,
+    is_diag: bool,
+) {
+    if let Ok(mut guard) = GLOBAL_LOGGER.lock() {
+        let logger = guard.get_or_insert_with(|| {
+            RotatingLogger::new(
+                default_log_dir(),
+                DEFAULT_MAX_LOG_BYTES,
+                DEFAULT_MAX_LOG_BACKUPS,
+            )
+        });
+        logger.log_pause_transition(target, is_paused, dominant_reason, latency_ms, is_diag);
     }
 }
 
@@ -261,6 +319,55 @@ mod tests {
         assert!(contents.contains("first error"));
         assert!(!contents.contains("duplicate suppressed"));
         assert!(contents.contains("different key allowed"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_log_pause_transition_formatting_and_diag() {
+        let dir = temp_test_dir("log_pause_trans");
+        let mut logger = RotatingLogger::new(dir.clone(), 1024 * 1024, 1);
+
+        assert!(logger.log_pause_transition(
+            r"\\.\DISPLAY1",
+            true,
+            Some("Window Covered"),
+            Some(42),
+            true,
+        ));
+        assert!(logger.log_pause_transition(r"\\.\DISPLAY1", false, None, Some(38), false,));
+
+        let contents = std::fs::read_to_string(dir.join("app.log")).expect("app.log exists");
+        assert!(contents.contains(
+            r"[ArcPaper] Pause transition: \\.\DISPLAY1 -> PAUSED [Reason: Window Covered]"
+        ));
+        assert!(contents.contains(r"[ArcPaper] [DIAG_PAUSE] Target=\\.\DISPLAY1 Latency=42ms Transition=PAUSED Reason=Window Covered"));
+        assert!(
+            contents
+                .contains(r"[ArcPaper] Pause transition: \\.\DISPLAY1 -> RESUMED [Reason: None]")
+        );
+        // is_diag was false on resume, so no DIAG_PAUSE for RESUMED
+        assert!(!contents.contains(
+            r"[ArcPaper] [DIAG_PAUSE] Target=\\.\DISPLAY1 Latency=38ms Transition=RESUMED"
+        ));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_log_pause_transition_throttling_bursts() {
+        let dir = temp_test_dir("log_pause_burst");
+        let mut logger = RotatingLogger::new(dir.clone(), 1024 * 1024, 1);
+
+        // First transition logged
+        assert!(logger.log_pause_transition("Primary", true, Some("Battery"), Some(50), true));
+        // Immediate repeat with identical state suppressed by 50ms cooldown
+        assert!(!logger.log_pause_transition("Primary", true, Some("Battery"), Some(51), true));
+
+        // Different state (RESUMED) allowed
+        assert!(logger.log_pause_transition("Primary", false, None, Some(45), true));
+        // Immediate repeat of RESUMED suppressed
+        assert!(!logger.log_pause_transition("Primary", false, None, Some(46), true));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

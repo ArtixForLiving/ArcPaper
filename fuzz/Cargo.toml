@@ -9,6 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+serde_json = "1.0"
 
 [dependencies.arc_paper]
 path = ".."
@@ -16,6 +17,13 @@ path = ".."
 [[bin]]
 name = "demux_mp4"
 path = "fuzz_targets/demux_mp4.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_v3"
+path = "fuzz_targets/config_v3.rs"
 test = false
 doc = false
 bench = false

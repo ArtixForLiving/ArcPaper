@@ -2,6 +2,8 @@
 
 # ─── Rust Build Artifacts ─────────────────────────────────────────────────────
 /target/
+/fuzz/target/
+/fuzz/Cargo.lock
 **/*.rs.bk
 
 # Cargo.lock is retained for reproducible application binary builds.

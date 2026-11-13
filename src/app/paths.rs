@@ -87,6 +87,30 @@ pub fn configure_process_and_dpi() {
             use windows::Win32::UI::WindowsAndMessaging::SetProcessDPIAware;
             let _ = SetProcessDPIAware();
         }
+
+        use windows::Win32::System::Threading::{
+            BELOW_NORMAL_PRIORITY_CLASS, GetCurrentProcess, SetPriorityClass,
+        };
+        let _ = SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
+    }
+}
+
+/// Acquires the application single-instance mutex, terminating the process cleanly if another instance is running.
+#[cfg(windows)]
+pub fn acquire_single_instance_mutex_or_exit() -> Option<windows::Win32::Foundation::HANDLE> {
+    unsafe {
+        use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
+        use windows::Win32::System::Threading::CreateMutexW;
+        use windows::core::w;
+
+        let handle = CreateMutexW(None, true, w!("ArcPaper_SingleInstance_Mutex"));
+        if GetLastError() == ERROR_ALREADY_EXISTS {
+            crate::app::log::log_msg(
+                "[ArcPaper] Another instance of ArcPaper is already running. Exiting cleanly.",
+            );
+            std::process::exit(0);
+        }
+        handle.ok()
     }
 }
 
@@ -109,9 +133,80 @@ pub fn list_mp4_files(dir: &Path) -> Vec<String> {
     files
 }
 
+/// Command-line flags parsed at application startup.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CliArgs {
+    /// Enables auto-pause transition latency diagnostic logging.
+    pub diag_pause: bool,
+    /// Forces window monitor to run in legacy 1000 ms polling mode.
+    pub force_polling: bool,
+}
+
+impl CliArgs {
+    /// Parses flags from `std::env::args()`.
+    pub fn parse() -> Self {
+        Self::parse_from(std::env::args())
+    }
+
+    /// Parses flags from any iterator of argument strings.
+    pub fn parse_from<I, T>(args: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: AsRef<str>,
+    {
+        let mut cli = Self::default();
+        for arg in args {
+            match arg.as_ref() {
+                "--diag-pause" => cli.diag_pause = true,
+                "--force-polling" => cli.force_polling = true,
+                _ => {}
+            }
+        }
+        cli
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cli_args_parsing() {
+        let empty: Vec<&str> = vec![];
+        assert_eq!(CliArgs::parse_from(empty), CliArgs::default());
+
+        let diag = vec!["arc_paper.exe", "--diag-pause"];
+        assert_eq!(
+            CliArgs::parse_from(diag),
+            CliArgs {
+                diag_pause: true,
+                force_polling: false,
+            }
+        );
+
+        let poll = vec!["arc_paper.exe", "--force-polling"];
+        assert_eq!(
+            CliArgs::parse_from(poll),
+            CliArgs {
+                diag_pause: false,
+                force_polling: true,
+            }
+        );
+
+        let both = vec![
+            "arc_paper.exe",
+            "--diag-pause",
+            "--force-polling",
+            "--unknown",
+        ];
+        assert_eq!(
+            CliArgs::parse_from(both),
+            CliArgs {
+                diag_pause: true,
+                force_polling: true,
+            }
+        );
+    }
 
     #[test]
     fn test_resolve_paths_from_portable_exe_and_deps_runner() {

@@ -590,7 +590,7 @@ pub fn spawn_multi_monitor_thread<F>(
     F: Fn(BTreeMap<MonitorId, bool>) + Send + 'static,
 {
     let callback = std::sync::Arc::new(std::sync::Mutex::new(on_cover_change));
-    let force_polling = std::env::args().any(|arg| arg == "--force-polling");
+    let force_polling = crate::app::paths::CliArgs::parse().force_polling;
     if force_polling {
         crate::app::log::log_with_level(
             crate::app::log::LogLevel::Warn,

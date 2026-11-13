@@ -133,7 +133,7 @@ if ($Synthetic) {
 
             if ($msg -match '(?i)(?:winevent|window_event|coalesce|trigger|coverage evaluate)') {
                 $pendingTriggerTs = $ts
-            } elseif ($msg -match '(?i)(?:Smart Auto-Pause|pause applied|transition applied)' -and $pendingTriggerTs -ne $null) {
+            } elseif ($msg -match '(?i)(?:Smart Auto-Pause|pause applied|transition applied|pause transition)' -and $pendingTriggerTs -ne $null) {
                 $diff = $ts - $pendingTriggerTs
                 if ($diff -ge 0 -and $diff -le 5000) {
                     $latencies.Add([Math]::Round($diff, 2))

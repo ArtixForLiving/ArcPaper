@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 use std::collections::BTreeMap;
 #[cfg(windows)]
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 #[cfg(windows)]
 use std::sync::{Arc, RwLock};
 
@@ -215,6 +215,20 @@ static DIRTY_FLAG: AtomicBool = AtomicBool::new(false);
 static OUR_PID: AtomicU32 = AtomicU32::new(0);
 #[cfg(windows)]
 static DETECT_EXCLUSIVE_FULLSCREEN: AtomicBool = AtomicBool::new(true);
+#[cfg(windows)]
+static LAST_TRANSITION_LATENCY_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Returns and resets the most recently measured event-to-evaluation transition latency in milliseconds.
+#[cfg(windows)]
+pub fn take_last_transition_latency_ms() -> Option<u64> {
+    let val = LAST_TRANSITION_LATENCY_MS.swap(0, Ordering::SeqCst);
+    if val > 0 { Some(val) } else { None }
+}
+
+#[cfg(not(windows))]
+pub fn take_last_transition_latency_ms() -> Option<u64> {
+    None
+}
 
 /// Sets whether exclusive fullscreen detection is enabled and triggers re-evaluation if active.
 #[cfg(windows)]
@@ -404,12 +418,16 @@ where
             let mut msg = MSG::default();
             let mut coalescer = EventCoalescer::with_default_delays();
             let mut active_timer_id: usize = 0;
+            let mut trigger_start: Option<Instant> = None;
 
             while unsafe { GetMessageW(&mut msg, None, 0, 0) }.as_bool() {
                 match msg.message {
                     WM_WINEVENT_DIRTY => {
                         DIRTY_FLAG.store(false, Ordering::SeqCst);
                         let now = Instant::now();
+                        if trigger_start.is_none() {
+                            trigger_start = Some(now);
+                        }
                         coalescer.trigger(now);
 
                         if active_timer_id != 0 {
@@ -430,6 +448,8 @@ where
 
                         let now = Instant::now();
                         if let Some(_action) = coalescer.poll_action(now) {
+                            let latency_ms =
+                                trigger_start.take().map(|t| t.elapsed().as_millis() as u64);
                             let monitors = match monitors_snapshot.read() {
                                 Ok(guard) => guard.clone(),
                                 Err(poisoned) => poisoned.into_inner().clone(),
@@ -450,6 +470,9 @@ where
 
                             let state_changed = last_coverage.as_ref() != Some(&coverage);
                             if state_changed {
+                                if let Some(lat) = latency_ms {
+                                    LAST_TRANSITION_LATENCY_MS.store(lat, Ordering::SeqCst);
+                                }
                                 last_coverage = Some(coverage.clone());
                                 on_cover_change(coverage);
                             }
