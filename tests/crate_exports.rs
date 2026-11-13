@@ -20,6 +20,12 @@ fn library_crate_exports_core_modules() {
     );
     let _ = ArcPaperEventHost::new(|_event| {});
 
+    // Verify winevent re-export
+    assert_eq!(
+        arc_paper::winevent::WINEVENT_THREAD_NAME,
+        "ArcPaper-WinEventHook"
+    );
+
     #[cfg(windows)]
     {
         // Ensure workerw symbol is reachable from the library target.

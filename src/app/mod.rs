@@ -14,3 +14,4 @@ pub use pause::PauseReason;
 pub mod tray;
 pub mod uninstall;
 pub mod updater;
+pub mod winevent;

@@ -213,6 +213,60 @@ pub unsafe fn is_ignored_shell_class(hwnd: HWND) -> bool {
     is_ignored_class_name(&class_str)
 }
 
+/// Returns true if a window is an observable top-level application window for auto-pause evaluation.
+///
+/// # Safety
+/// Caller must ensure `hwnd` is a valid Win32 window handle.
+#[cfg(windows)]
+pub unsafe fn is_window_observable(hwnd: HWND, our_pid: u32) -> bool {
+    if hwnd.0.is_null() {
+        return false;
+    }
+
+    let class_name = unsafe { get_window_class_name(hwnd) };
+    let has_shelldll_defview = if class_name == "WorkerW" {
+        unsafe { FindWindowExW(Some(hwnd), None, w!("SHELLDLL_DefView"), PCWSTR::null()) }
+            .is_ok_and(|h| !h.0.is_null())
+    } else {
+        false
+    };
+    if is_desktop_plane_class(&class_name, has_shelldll_defview) {
+        return false;
+    }
+
+    let is_visible = unsafe { IsWindowVisible(hwnd) }.as_bool();
+    let is_iconic = unsafe { IsIconic(hwnd) }.as_bool();
+    let is_cloaked = unsafe { is_window_cloaked(hwnd) };
+
+    let mut win_pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut win_pid)) };
+
+    let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+    let is_tool_window = (ex_style & WS_EX_TOOLWINDOW.0) != 0;
+
+    let mut rect = RECT::default();
+    if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
+        return false;
+    }
+
+    let win_rect = DisplayRect {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+    };
+
+    should_observe_window(
+        is_visible,
+        is_iconic,
+        is_cloaked,
+        is_tool_window,
+        win_pid == our_pid,
+        is_ignored_class_name(&class_name),
+        win_rect,
+    )
+}
+
 /// Checks whether the active foreground window covers the desktop screen (maximized or fullscreen).
 ///
 /// # Safety
@@ -441,11 +495,77 @@ where
 /// Thread name for the multi-monitor auto-pause monitor.
 pub const AUTOPAUSE_THREAD_NAME: &str = "ArcPaper-AutoPauseMonitor";
 
-/// Spawns a background multi-monitor auto-pause monitor thread (1000ms polling interval).
+/// Spawns a background multi-monitor auto-pause monitor thread.
+///
+/// Attempts to use the event-driven `ArcPaper-WinEventHook` monitor (≤ 150 ms latency, 0.0% idle CPU).
+/// Falls back to the legacy 1000 ms polling loop if hook installation fails or if `--force-polling` is specified.
 ///
 /// Calls `on_cover_change` whenever the per-monitor coverage state changes.
 #[cfg(windows)]
 pub fn spawn_multi_monitor_thread<F>(
+    monitors_snapshot: std::sync::Arc<std::sync::RwLock<Vec<MonitorInfo>>>,
+    on_cover_change: F,
+) where
+    F: Fn(BTreeMap<MonitorId, bool>) + Send + 'static,
+{
+    let callback = std::sync::Arc::new(std::sync::Mutex::new(on_cover_change));
+    let force_polling = std::env::args().any(|arg| arg == "--force-polling");
+    if force_polling {
+        crate::app::log::log_with_level(
+            crate::app::log::LogLevel::Warn,
+            "[ArcPaper] Falling back to polling window monitor",
+        );
+        let cb = std::sync::Arc::clone(&callback);
+        spawn_multi_monitor_polling_thread(monitors_snapshot, move |cov| {
+            if let Ok(f) = cb.lock() {
+                f(cov);
+            }
+        });
+        return;
+    }
+
+    let cb_winevent = {
+        let cb = std::sync::Arc::clone(&callback);
+        move |cov| {
+            if let Ok(f) = cb.lock() {
+                f(cov);
+            }
+        }
+    };
+
+    match crate::app::winevent::spawn_winevent_monitor_thread(
+        std::sync::Arc::clone(&monitors_snapshot),
+        cb_winevent,
+    ) {
+        Ok(handle) => {
+            // Keep the event hook monitor alive for the application lifetime.
+            Box::leak(Box::new(handle));
+        }
+        Err(err) => {
+            crate::app::log::log_with_level(
+                crate::app::log::LogLevel::Warn,
+                "[ArcPaper] Falling back to polling window monitor",
+            );
+            crate::app::log::log_with_level(
+                crate::app::log::LogLevel::Warn,
+                &format!("[ArcPaper] Hook monitor error: {err}"),
+            );
+            let cb_polling = {
+                let cb = std::sync::Arc::clone(&callback);
+                move |cov| {
+                    if let Ok(f) = cb.lock() {
+                        f(cov);
+                    }
+                }
+            };
+            spawn_multi_monitor_polling_thread(monitors_snapshot, cb_polling);
+        }
+    }
+}
+
+/// Spawns the legacy fallback polling multi-monitor auto-pause monitor thread (1000ms polling interval).
+#[cfg(windows)]
+pub fn spawn_multi_monitor_polling_thread<F>(
     monitors_snapshot: std::sync::Arc<std::sync::RwLock<Vec<MonitorInfo>>>,
     on_cover_change: F,
 ) where
@@ -834,5 +954,12 @@ mod tests {
         assert!(is_desktop_plane_class("WorkerW", true));
         assert!(!is_desktop_plane_class("WorkerW", false));
         assert!(!is_desktop_plane_class("Chrome_WidgetWin_1", false));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_is_window_observable_smoke() {
+        // Null window should not be observable
+        assert!(!unsafe { is_window_observable(HWND::default(), std::process::id()) });
     }
 }

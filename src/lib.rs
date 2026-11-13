@@ -6,4 +6,4 @@ pub mod display;
 #[cfg(windows)]
 pub mod workerw;
 
-pub use app::{ArcPaperEventHost, HostEvent, PauseReason};
+pub use app::{ArcPaperEventHost, HostEvent, PauseReason, winevent};
