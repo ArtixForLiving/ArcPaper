@@ -1,6 +1,7 @@
 //! Persistent application configuration and safe sanitization/validation.
 
 use crate::display::MonitorId;
+use crate::power::BatteryPolicy;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -19,6 +20,56 @@ fn default_brightness() -> u32 {
 
 fn default_fit_mode() -> String {
     "cover".to_string()
+}
+
+fn default_battery_policy() -> BatteryPolicy {
+    BatteryPolicy::PauseOnBatterySaver
+}
+
+fn default_low_battery_threshold() -> u32 {
+    20
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PowerConfig {
+    #[serde(default = "default_battery_policy")]
+    pub battery_policy: BatteryPolicy,
+    #[serde(default = "default_low_battery_threshold")]
+    pub low_battery_threshold: u32,
+    #[serde(default)]
+    pub adaptive_fps: bool,
+    #[serde(default = "default_true")]
+    pub pause_on_lock: bool,
+    #[serde(default = "default_true")]
+    pub pause_on_remote: bool,
+    #[serde(default = "default_true")]
+    pub pause_on_display_off: bool,
+    #[serde(default = "default_true")]
+    pub detect_exclusive_fullscreen: bool,
+    #[serde(default)]
+    pub treat_presentation_mode_as_busy: bool,
+    #[serde(default)]
+    pub follow_reduce_motion: bool,
+}
+
+impl Default for PowerConfig {
+    fn default() -> Self {
+        Self {
+            battery_policy: default_battery_policy(),
+            low_battery_threshold: default_low_battery_threshold(),
+            adaptive_fps: false,
+            pause_on_lock: true,
+            pause_on_remote: true,
+            pause_on_display_off: true,
+            detect_exclusive_fullscreen: true,
+            treat_presentation_mode_as_busy: false,
+            follow_reduce_motion: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -88,13 +139,15 @@ pub struct AppConfig {
     #[serde(default)]
     pub display_mode: DisplayMode,
     #[serde(default)]
+    pub power: PowerConfig,
+    #[serde(default)]
     pub monitors: BTreeMap<String, MonitorConfigOverride>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            schema_version: 2,
+            schema_version: 3,
             active_video: None,
             speed: default_speed(),
             brightness: default_brightness(),
@@ -102,6 +155,7 @@ impl Default for AppConfig {
             is_manually_paused: false,
             target_fps: None,
             display_mode: DisplayMode::default(),
+            power: PowerConfig::default(),
             monitors: BTreeMap::new(),
         }
     }
@@ -154,15 +208,23 @@ impl AppConfig {
 pub fn sanitize_config(mut cfg: AppConfig) -> (AppConfig, Vec<String>) {
     let mut warnings = Vec::new();
 
-    if cfg.schema_version < 2 {
-        warnings.push("Migrated configuration schema to v2".to_string());
-        cfg.schema_version = 2;
-    } else if cfg.schema_version > 2 {
+    if cfg.schema_version < 3 {
+        warnings.push("Migrated configuration schema to v3".to_string());
+        cfg.schema_version = 3;
+    } else if cfg.schema_version > 3 {
         warnings.push(format!(
-            "Unsupported configuration schema_version ({}) clamped to 2",
+            "Unsupported configuration schema_version ({}) clamped to 3",
             cfg.schema_version
         ));
-        cfg.schema_version = 2;
+        cfg.schema_version = 3;
+    }
+
+    if cfg.power.low_battery_threshold < 5 || cfg.power.low_battery_threshold > 50 {
+        warnings.push(format!(
+            "Out-of-range low_battery_threshold ({}) normalized to 20",
+            cfg.power.low_battery_threshold
+        ));
+        cfg.power.low_battery_threshold = 20;
     }
 
     if let Some(ref name) = cfg.active_video
@@ -376,7 +438,7 @@ mod tests {
         };
 
         let (clean, warnings) = sanitize_config(dirty);
-        assert_eq!(clean.schema_version, 2);
+        assert_eq!(clean.schema_version, 3);
         assert_eq!(clean.active_video, None);
         assert_eq!(clean.speed, 1.0);
         assert_eq!(clean.brightness, 100);
@@ -424,7 +486,7 @@ mod tests {
         std::fs::write(&path, legacy_json).unwrap();
 
         let loaded = load_config(&path);
-        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.schema_version, 3);
         assert_eq!(loaded.active_video.as_deref(), Some("test.mp4"));
         assert_eq!(loaded.speed, 1.5);
         assert_eq!(loaded.brightness, 75);
@@ -458,7 +520,7 @@ mod tests {
         std::fs::write(&path, v1_6_json).unwrap();
 
         let loaded = load_config(&path);
-        assert_eq!(loaded.schema_version, 2);
+        assert_eq!(loaded.schema_version, 3);
         assert_eq!(loaded.active_video.as_deref(), Some("sample.mp4"));
         assert_eq!(loaded.speed, 2.0);
         assert_eq!(loaded.brightness, 75);
@@ -466,9 +528,90 @@ mod tests {
         assert!(!loaded.is_manually_paused);
         assert_eq!(loaded.target_fps, Some(30));
         assert_eq!(loaded.display_mode, DisplayMode::PerMonitor);
+        assert_eq!(loaded.power, PowerConfig::default());
         assert!(loaded.monitors.is_empty());
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_load_v2_config_migrates_to_v3_preserving_values() {
+        let path = temp_config_path("v2_to_v3_migration");
+        let v2_json = r#"{
+            "schema_version": 2,
+            "active_video": "v2_wallpaper.mp4",
+            "speed": 1.75,
+            "brightness": 85,
+            "fit_mode": "contain",
+            "is_manually_paused": true,
+            "target_fps": 45,
+            "display_mode": "per_monitor",
+            "monitors": {
+                "MON_1": {
+                    "active_video": "mon1.mp4",
+                    "speed": 2.0,
+                    "brightness": 120,
+                    "fit_mode": "cover",
+                    "target_fps": 60,
+                    "is_manually_paused": false
+                }
+            }
+        }"#;
+        std::fs::write(&path, v2_json).unwrap();
+
+        let loaded = load_config(&path);
+        assert_eq!(loaded.schema_version, 3);
+        assert_eq!(loaded.active_video.as_deref(), Some("v2_wallpaper.mp4"));
+        assert_eq!(loaded.speed, 1.75);
+        assert_eq!(loaded.brightness, 85);
+        assert_eq!(loaded.fit_mode, "contain");
+        assert!(loaded.is_manually_paused);
+        assert_eq!(loaded.target_fps, Some(45));
+        assert_eq!(loaded.display_mode, DisplayMode::PerMonitor);
+        assert_eq!(loaded.power, PowerConfig::default());
+
+        let mon1 = loaded.monitors.get("MON_1").expect("MON_1 must exist");
+        assert_eq!(mon1.active_video.as_deref(), Some("mon1.mp4"));
+        assert_eq!(mon1.speed, Some(2.0));
+        assert_eq!(mon1.brightness, Some(120));
+        assert_eq!(mon1.fit_mode.as_deref(), Some("cover"));
+        assert_eq!(mon1.target_fps, Some(60));
+        assert_eq!(mon1.is_manually_paused, Some(false));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_sanitize_power_config_bounds() {
+        let mut cfg = AppConfig::default();
+        cfg.power.low_battery_threshold = 0;
+        let (sanitized_low, warnings_low) = sanitize_config(cfg);
+        assert_eq!(sanitized_low.power.low_battery_threshold, 20);
+        assert!(
+            warnings_low
+                .iter()
+                .any(|w| w.contains("low_battery_threshold"))
+        );
+
+        let mut cfg2 = AppConfig::default();
+        cfg2.power.low_battery_threshold = 51;
+        let (sanitized_high, warnings_high) = sanitize_config(cfg2);
+        assert_eq!(sanitized_high.power.low_battery_threshold, 20);
+        assert!(
+            warnings_high
+                .iter()
+                .any(|w| w.contains("low_battery_threshold"))
+        );
+
+        let mut cfg_valid = AppConfig::default();
+        cfg_valid.power.low_battery_threshold = 35;
+        let (sanitized_valid, warnings_valid) = sanitize_config(cfg_valid);
+        assert_eq!(sanitized_valid.power.low_battery_threshold, 35);
+        assert!(
+            !warnings_valid
+                .iter()
+                .any(|w| w.contains("low_battery_threshold"))
+        );
     }
 
     #[test]
@@ -535,7 +678,7 @@ mod tests {
 
         let (clean, warnings) = sanitize_config(dirty);
 
-        assert_eq!(clean.schema_version, 2);
+        assert_eq!(clean.schema_version, 3);
         assert!(!clean.monitors.contains_key("   "));
         assert!(!clean.monitors.contains_key("  MON_ALL_INVALID  "));
         assert!(!clean.monitors.contains_key("MON_ALL_INVALID"));

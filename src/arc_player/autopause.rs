@@ -109,6 +109,44 @@ impl AutoPause {
     }
 }
 
+/// Computes the effective target FPS based on power status and adaptive throttling policy (FR-306).
+///
+/// Hysteresis behavior:
+/// - Engages throttling to 30 FPS when on DC power and battery is at or below `low_threshold`%.
+/// - Releases throttling back to `base_target_fps` when on AC power or battery reaches `low_threshold + 5`%.
+/// - In the hysteresis deadband (`low_threshold < battery < low_threshold + 5`), retains `is_currently_throttled`.
+pub fn compute_adaptive_target_fps(
+    base_target_fps: Option<u32>,
+    adaptive_enabled: bool,
+    battery_percent: Option<u8>,
+    is_on_ac: bool,
+    is_currently_throttled: bool,
+    low_threshold: u32,
+) -> (Option<u32>, bool) {
+    if !adaptive_enabled || is_on_ac {
+        return (base_target_fps, false);
+    }
+
+    let Some(percent) = battery_percent else {
+        return (base_target_fps, false);
+    };
+
+    let percent = percent as u32;
+    let release_threshold = low_threshold.saturating_add(5);
+
+    let is_throttled = if is_currently_throttled {
+        percent < release_threshold
+    } else {
+        percent <= low_threshold
+    };
+
+    if is_throttled {
+        (Some(30), true)
+    } else {
+        (base_target_fps, false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,5 +169,83 @@ mod tests {
     #[test]
     fn test_trim_working_set() {
         AutoPause::trim_working_set();
+    }
+
+    #[test]
+    fn test_adaptive_fps_hysteresis_no_flapping() {
+        let base_fps = Some(60);
+        let low_thresh = 20;
+
+        // 1. Adaptive disabled -> never throttled
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, false, Some(10), false, false, low_thresh);
+        assert_eq!(fps, base_fps);
+        assert!(!throttled);
+
+        // 2. On AC power -> never throttled even with low battery
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, Some(10), true, true, low_thresh);
+        assert_eq!(fps, base_fps);
+        assert!(!throttled);
+
+        // 3. No battery info -> unthrottled
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, None, false, false, low_thresh);
+        assert_eq!(fps, base_fps);
+        assert!(!throttled);
+
+        // 4. Normal battery above threshold (50%) -> unthrottled
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, Some(50), false, false, low_thresh);
+        assert_eq!(fps, base_fps);
+        assert!(!throttled);
+
+        // 5. Battery drops to 21% (above low_threshold) -> still unthrottled
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, Some(21), false, false, low_thresh);
+        assert_eq!(fps, base_fps);
+        assert!(!throttled);
+
+        // 6. Battery hits 20% (<= low_threshold) -> THROTTLES to 30 FPS
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, Some(20), false, false, low_thresh);
+        assert_eq!(fps, Some(30));
+        assert!(throttled);
+
+        // 7. Battery drops further to 15% -> remains throttled
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, Some(15), false, true, low_thresh);
+        assert_eq!(fps, Some(30));
+        assert!(throttled);
+
+        // 8. Battery charges to 21% (in deadband 21..24) while throttled -> STAYS THROTTLED (no flapping!)
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, Some(21), false, true, low_thresh);
+        assert_eq!(fps, Some(30));
+        assert!(throttled);
+
+        // 9. Battery charges to 24% (in deadband) while throttled -> STAYS THROTTLED
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, Some(24), false, true, low_thresh);
+        assert_eq!(fps, Some(30));
+        assert!(throttled);
+
+        // 10. Battery charges to 25% (>= low_threshold + 5) -> RELEASES throttle
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, Some(25), false, true, low_thresh);
+        assert_eq!(fps, base_fps);
+        assert!(!throttled);
+
+        // 11. Battery discharges to 24% while unthrottled -> stays unthrottled (deadband)
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, Some(24), false, false, low_thresh);
+        assert_eq!(fps, base_fps);
+        assert!(!throttled);
+
+        // 12. Plugged into AC while at 10% and throttled -> immediately releases
+        let (fps, throttled) =
+            compute_adaptive_target_fps(base_fps, true, Some(10), true, true, low_thresh);
+        assert_eq!(fps, base_fps);
+        assert!(!throttled);
     }
 }

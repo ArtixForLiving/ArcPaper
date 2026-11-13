@@ -22,7 +22,7 @@ mod windows_app {
     use arc_paper::app::tray::{
         TrayOutcome, build_initial_tray_icon, collect_native_fps,
         compute_effective_paused_map_with_reasons, handle_topology_change_if_needed,
-        handle_tray_action, sync_effective_pause,
+        handle_tray_action, sync_effective_pause, update_tray_tooltip,
     };
     use arc_paper::arc_player::WallpaperManager;
     use arc_paper::display::topology::DisplayDebounce;
@@ -86,12 +86,7 @@ mod windows_app {
         let monitors_snapshot = Arc::new(RwLock::new(current_monitors.clone()));
 
         let mut manager = WallpaperManager::new(workerw_hwnd)
-            .map_err(|e| {
-                log_with_level(
-                    LogLevel::Error,
-                    &format!("[ArcPaper] Init WallpaperManager error: {e}"),
-                );
-            })
+            .map_err(|e| log_with_level(LogLevel::Error, &format!("[ArcPaper] Manager error: {e}")))
             .ok();
 
         let wp_state: Rc<RefCell<AppConfig>> = Rc::new(RefCell::new(load_config(&config_path)));
@@ -118,21 +113,18 @@ mod windows_app {
 
         let proxy_event_host = event_loop.create_proxy();
         let mut current_global_reasons = PauseReason::empty();
-        let event_host = match ArcPaperEventHost::new(move |event| {
+        let mut event_host = ArcPaperEventHost::new(move |event| {
             let _ = proxy_event_host.send_event(UserEvent::Host(event));
-        }) {
-            Ok(host) => {
-                current_global_reasons = host.current_global_reasons();
-                Some(host)
-            }
-            Err(e) => {
-                log_with_level(
-                    LogLevel::Error,
-                    &format!("[ArcPaper] Failed to initialize ArcPaperEventHost: {e}"),
-                );
-                None
-            }
-        };
+        })
+        .map_err(|e| log_with_level(LogLevel::Error, &format!("[ArcPaper] EventHost error: {e}")))
+        .ok();
+        if let Some(ref mut host) = event_host {
+            host.update_power_config(&wp_state.borrow().power);
+            current_global_reasons = host.current_global_reasons();
+        }
+        arc_paper::app::winevent::set_detect_exclusive_fullscreen(
+            wp_state.borrow().power.detect_exclusive_fullscreen,
+        );
 
         if !current_global_reasons.is_empty() {
             log_msg(&format!(
@@ -193,7 +185,6 @@ mod windows_app {
             *control_flow = ControlFlow::WaitUntil(next_wake);
 
             let _keep_tray = &tray_icon;
-            let _keep_event_host = &event_host;
 
             while tray_icon::TrayIconEvent::receiver().try_recv().is_ok() {}
 
@@ -234,6 +225,9 @@ mod windows_app {
                         &current_coverage_map,
                         current_global_reasons,
                     );
+                    let is_p = !current_global_reasons.is_empty() || wp_state.borrow().is_manually_paused;
+                    let reasons = if wp_state.borrow().is_manually_paused { current_global_reasons | PauseReason::MANUAL } else { current_global_reasons };
+                    update_tray_tooltip(&tray_icon, is_p, reasons);
                 }
 
                 Event::UserEvent(UserEvent::Host(HostEvent::DisplayTopologyDirty)) => {
@@ -260,6 +254,9 @@ mod windows_app {
                         &current_coverage_map,
                         current_global_reasons,
                     );
+                    let is_p = !current_global_reasons.is_empty() || wp_state.borrow().is_manually_paused;
+                    let reasons = if wp_state.borrow().is_manually_paused { current_global_reasons | PauseReason::MANUAL } else { current_global_reasons };
+                    update_tray_tooltip(&tray_icon, is_p, reasons);
                 }
 
                 Event::UserEvent(UserEvent::Host(HostEvent::ResumeFromSuspend)) => {
@@ -339,6 +336,7 @@ mod windows_app {
                             &config_path,
                             &tray_icon,
                             &mut controls,
+                            event_host.as_mut(),
                         );
                         if outcome == TrayOutcome::Exit {
                             *control_flow = ControlFlow::Exit;

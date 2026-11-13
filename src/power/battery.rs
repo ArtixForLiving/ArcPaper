@@ -7,16 +7,20 @@
 
 use super::system_probe::PowerStatus;
 use crate::app::PauseReason;
+use serde::{Deserialize, Serialize};
 
 /// User-selectable battery management policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum BatteryPolicy {
     /// Never pause playback due to battery or power saver state.
+    #[serde(alias = "always_play", alias = "always-play")]
     AlwaysPlay,
     /// Pause playback when Windows Battery Saver / Energy Saver is active (default).
     #[default]
+    #[serde(alias = "pause_on_battery_saver", alias = "pause-on-battery-saver")]
     PauseOnBatterySaver,
     /// Pause playback whenever running on DC battery power.
+    #[serde(alias = "pause_on_battery", alias = "pause-on-battery")]
     PauseOnBattery,
 }
 

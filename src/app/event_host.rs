@@ -44,6 +44,9 @@ mod imp {
         taskbar_created_msg: u32,
         battery_policy: BatteryPolicy,
         power_status: PowerStatus,
+        pause_on_lock: bool,
+        pause_on_remote: bool,
+        pause_on_display_off: bool,
         is_locked: bool,
         is_remote: bool,
         is_display_off: bool,
@@ -57,9 +60,9 @@ mod imp {
         fn recompute_and_dispatch(&mut self) {
             let battery_reasons = evaluate_battery_pause(self.battery_policy, &self.power_status);
             let session_reasons = evaluate_session_pause(
-                self.is_locked,
-                self.is_remote,
-                self.is_display_off,
+                self.is_locked && self.pause_on_lock,
+                self.is_remote && self.pause_on_remote,
+                self.is_display_off && self.pause_on_display_off,
                 self.is_suspended,
             );
             let motion_reasons = crate::power::motion::evaluate_reduce_motion_pause(
@@ -267,6 +270,9 @@ mod imp {
                     taskbar_created_msg,
                     battery_policy,
                     power_status,
+                    pause_on_lock: true,
+                    pause_on_remote: true,
+                    pause_on_display_off: true,
                     is_locked: false,
                     is_remote,
                     is_display_off: false,
@@ -371,6 +377,52 @@ mod imp {
                 }
             }
         }
+
+        /// Configures whether ArcPaper pauses on session lock.
+        pub fn set_pause_on_lock(&mut self, pause: bool) {
+            unsafe {
+                if !self.ctx.is_null() {
+                    (*self.ctx).pause_on_lock = pause;
+                    (*self.ctx).recompute_and_dispatch();
+                }
+            }
+        }
+
+        /// Configures whether ArcPaper pauses on Remote Desktop connections.
+        pub fn set_pause_on_remote(&mut self, pause: bool) {
+            unsafe {
+                if !self.ctx.is_null() {
+                    (*self.ctx).pause_on_remote = pause;
+                    (*self.ctx).recompute_and_dispatch();
+                }
+            }
+        }
+
+        /// Configures whether ArcPaper pauses when the physical display turns off.
+        pub fn set_pause_on_display_off(&mut self, pause: bool) {
+            unsafe {
+                if !self.ctx.is_null() {
+                    (*self.ctx).pause_on_display_off = pause;
+                    (*self.ctx).recompute_and_dispatch();
+                }
+            }
+        }
+
+        /// Synchronizes the active event host with the provided power configuration.
+        pub fn update_power_config(&mut self, config: &crate::app::config::PowerConfig) {
+            unsafe {
+                if !self.ctx.is_null() {
+                    (*self.ctx).battery_policy = config.battery_policy;
+                    (*self.ctx).pause_on_lock = config.pause_on_lock;
+                    (*self.ctx).pause_on_remote = config.pause_on_remote;
+                    (*self.ctx).pause_on_display_off = config.pause_on_display_off;
+                    (*self.ctx).follow_reduce_motion = config.follow_reduce_motion;
+                    let probe = WindowsSystemProbe::new();
+                    (*self.ctx).is_reduce_motion = !probe.is_animation_enabled();
+                    (*self.ctx).recompute_and_dispatch();
+                }
+            }
+        }
     }
 
     impl Drop for ArcPaperEventHost {
@@ -422,6 +474,14 @@ impl ArcPaperEventHost {
     pub fn set_battery_policy(&mut self, _policy: crate::power::BatteryPolicy) {}
 
     pub fn set_follow_reduce_motion(&mut self, _follow: bool) {}
+
+    pub fn set_pause_on_lock(&mut self, _pause: bool) {}
+
+    pub fn set_pause_on_remote(&mut self, _pause: bool) {}
+
+    pub fn set_pause_on_display_off(&mut self, _pause: bool) {}
+
+    pub fn update_power_config(&mut self, _config: &crate::app::config::PowerConfig) {}
 }
 
 #[cfg(test)]

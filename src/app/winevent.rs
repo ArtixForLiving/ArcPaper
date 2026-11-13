@@ -213,6 +213,21 @@ static HOOK_THREAD_ID: AtomicU32 = AtomicU32::new(0);
 static DIRTY_FLAG: AtomicBool = AtomicBool::new(false);
 #[cfg(windows)]
 static OUR_PID: AtomicU32 = AtomicU32::new(0);
+#[cfg(windows)]
+static DETECT_EXCLUSIVE_FULLSCREEN: AtomicBool = AtomicBool::new(true);
+
+/// Sets whether exclusive fullscreen detection is enabled and triggers re-evaluation if active.
+#[cfg(windows)]
+pub fn set_detect_exclusive_fullscreen(detect: bool) {
+    DETECT_EXCLUSIVE_FULLSCREEN.store(detect, Ordering::SeqCst);
+    let thread_id = HOOK_THREAD_ID.load(Ordering::Relaxed);
+    if thread_id != 0 && !DIRTY_FLAG.swap(true, Ordering::SeqCst) {
+        let _ = unsafe { PostThreadMessageW(thread_id, WM_WINEVENT_DIRTY, WPARAM(0), LPARAM(0)) };
+    }
+}
+
+#[cfg(not(windows))]
+pub fn set_detect_exclusive_fullscreen(_detect: bool) {}
 
 #[cfg(windows)]
 const WM_WINEVENT_DIRTY: u32 = WM_USER + 101;
@@ -380,7 +395,7 @@ where
                 &initial_observations,
                 quns_state,
                 fg_hwnd,
-                true,
+                DETECT_EXCLUSIVE_FULLSCREEN.load(Ordering::Relaxed),
                 false,
             );
             let mut last_coverage = Some(initial_coverage.clone());
@@ -429,7 +444,7 @@ where
                                 &observations,
                                 quns_state,
                                 fg_hwnd,
-                                true,
+                                DETECT_EXCLUSIVE_FULLSCREEN.load(Ordering::Relaxed),
                                 false,
                             );
 

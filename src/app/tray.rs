@@ -2,13 +2,15 @@
 
 use super::PauseReason;
 use super::autostart::{disable_autostart, enable_autostart, is_autostart_enabled};
-use super::config::{AppConfig, DisplayMode, ResolvedMonitorConfig, save_config};
+use super::config::{AppConfig, DisplayMode, PowerConfig, ResolvedMonitorConfig, save_config};
+use super::event_host::ArcPaperEventHost;
 use super::log::{LogLevel, log_msg, log_with_level};
 use super::paths::list_mp4_files;
 use super::uninstall::perform_uninstall;
 use super::updater::check_for_updates;
 use crate::arc_player::WallpaperManager;
 use crate::display::{MonitorId, MonitorInfo, diff_topologies, enumerate_monitors};
+use crate::power::BatteryPolicy;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -42,6 +44,13 @@ pub enum TrayAction {
         monitor_id: Option<MonitorId>,
         target_fps: Option<u32>,
     },
+    SetBatteryPolicy(BatteryPolicy),
+    TogglePauseOnLock,
+    TogglePauseOnRemote,
+    TogglePauseOnDisplayOff,
+    ToggleExclusiveFullscreen,
+    ToggleReduceMotion,
+    ToggleAdaptiveFps,
     CheckUpdates,
     ToggleAutostart,
     Uninstall,
@@ -366,6 +375,105 @@ fn append_display_mode_submenu(
     parent.append(&mode_submenu);
 }
 
+fn append_power_submenu(
+    parent: &MenuParent<'_>,
+    power: &PowerConfig,
+    actions: &mut HashMap<MenuId, TrayAction>,
+) {
+    let power_submenu = Submenu::new("Power", true);
+
+    let always_play = CheckMenuItem::new(
+        "Always Play",
+        true,
+        power.battery_policy == BatteryPolicy::AlwaysPlay,
+        None,
+    );
+    actions.insert(
+        always_play.id().clone(),
+        TrayAction::SetBatteryPolicy(BatteryPolicy::AlwaysPlay),
+    );
+    let _ = power_submenu.append(&always_play);
+
+    let on_saver = CheckMenuItem::new(
+        "Pause on Battery Saver",
+        true,
+        power.battery_policy == BatteryPolicy::PauseOnBatterySaver,
+        None,
+    );
+    actions.insert(
+        on_saver.id().clone(),
+        TrayAction::SetBatteryPolicy(BatteryPolicy::PauseOnBatterySaver),
+    );
+    let _ = power_submenu.append(&on_saver);
+
+    let on_battery = CheckMenuItem::new(
+        "Pause on Battery",
+        true,
+        power.battery_policy == BatteryPolicy::PauseOnBattery,
+        None,
+    );
+    actions.insert(
+        on_battery.id().clone(),
+        TrayAction::SetBatteryPolicy(BatteryPolicy::PauseOnBattery),
+    );
+    let _ = power_submenu.append(&on_battery);
+
+    let _ = power_submenu.append(&PredefinedMenuItem::separator());
+
+    let pause_lock = CheckMenuItem::new("Pause on Screen Lock", true, power.pause_on_lock, None);
+    actions.insert(pause_lock.id().clone(), TrayAction::TogglePauseOnLock);
+    let _ = power_submenu.append(&pause_lock);
+
+    let pause_remote =
+        CheckMenuItem::new("Pause on Remote Desktop", true, power.pause_on_remote, None);
+    actions.insert(pause_remote.id().clone(), TrayAction::TogglePauseOnRemote);
+    let _ = power_submenu.append(&pause_remote);
+
+    let pause_display = CheckMenuItem::new(
+        "Pause on Display Off",
+        true,
+        power.pause_on_display_off,
+        None,
+    );
+    actions.insert(
+        pause_display.id().clone(),
+        TrayAction::TogglePauseOnDisplayOff,
+    );
+    let _ = power_submenu.append(&pause_display);
+
+    let pause_fullscreen = CheckMenuItem::new(
+        "Pause on Exclusive Fullscreen",
+        true,
+        power.detect_exclusive_fullscreen,
+        None,
+    );
+    actions.insert(
+        pause_fullscreen.id().clone(),
+        TrayAction::ToggleExclusiveFullscreen,
+    );
+    let _ = power_submenu.append(&pause_fullscreen);
+
+    let reduce_motion = CheckMenuItem::new(
+        "Respect Reduce Motion",
+        true,
+        power.follow_reduce_motion,
+        None,
+    );
+    actions.insert(reduce_motion.id().clone(), TrayAction::ToggleReduceMotion);
+    let _ = power_submenu.append(&reduce_motion);
+
+    let adaptive_fps = CheckMenuItem::new(
+        "Adaptive 30 FPS on Low Battery",
+        true,
+        power.adaptive_fps,
+        None,
+    );
+    actions.insert(adaptive_fps.id().clone(), TrayAction::ToggleAdaptiveFps);
+    let _ = power_submenu.append(&adaptive_fps);
+
+    parent.append(&power_submenu);
+}
+
 pub fn build_tray_menu(
     saved_wallpapers_dir: &Path,
     config: &AppConfig,
@@ -427,6 +535,9 @@ pub fn build_tray_menu(
     append_display_mode_submenu(&MenuParent::Menu(&menu), config.display_mode, &mut actions);
 
     let _ = menu.append(&PredefinedMenuItem::separator());
+    append_power_submenu(&MenuParent::Menu(&menu), &config.power, &mut actions);
+
+    let _ = menu.append(&PredefinedMenuItem::separator());
 
     let check_updates_item = MenuItem::new("Check for Updates...", true, None);
     actions.insert(check_updates_item.id().clone(), TrayAction::CheckUpdates);
@@ -453,6 +564,29 @@ pub fn build_tray_menu(
     (menu, controls)
 }
 
+/// Formats the tray tooltip string, adding dominant pause status when paused (FR-308).
+pub fn format_tray_tooltip(is_paused: bool, global_reasons: PauseReason) -> String {
+    if is_paused {
+        if let Some(label) = global_reasons.dominant_reason_label() {
+            format!("ArcPaper - Paused ({label})")
+        } else {
+            "ArcPaper - Paused".to_string()
+        }
+    } else {
+        "ArcPaper".to_string()
+    }
+}
+
+/// Updates the tray icon tooltip with the current pause state and dominant reason.
+pub fn update_tray_tooltip(
+    tray_icon: &tray_icon::TrayIcon,
+    is_paused: bool,
+    global_reasons: PauseReason,
+) {
+    let tooltip = format_tray_tooltip(is_paused, global_reasons);
+    let _ = tray_icon.set_tooltip(Some(tooltip));
+}
+
 /// Builds the tray icon with up to 10 retries (500ms apart) while Windows shell tray initializes.
 pub fn build_initial_tray_icon(
     saved_wallpapers_dir: &Path,
@@ -462,6 +596,14 @@ pub fn build_initial_tray_icon(
     global_native_fps: u32,
 ) -> (TrayIcon, TrayControls) {
     let mut built = None;
+    let initial_tooltip = format_tray_tooltip(
+        config.is_manually_paused,
+        if config.is_manually_paused {
+            PauseReason::MANUAL
+        } else {
+            PauseReason::empty()
+        },
+    );
     for attempt in 1..=10 {
         let (menu, new_ctrl) = build_tray_menu(
             saved_wallpapers_dir,
@@ -472,7 +614,7 @@ pub fn build_initial_tray_icon(
         );
         match TrayIconBuilder::new()
             .with_menu(Box::new(menu))
-            .with_tooltip("ArcPaper")
+            .with_tooltip(&initial_tooltip)
             .with_icon(create_default_tray_icon())
             .build()
         {
@@ -703,6 +845,14 @@ pub fn sync_manager_and_rebuild_tray_with_reasons(
         &fps_map,
         global_fps,
     );
+
+    let is_paused = config.is_manually_paused || !global_reasons.is_empty();
+    let combined_reasons = if config.is_manually_paused {
+        global_reasons | PauseReason::MANUAL
+    } else {
+        global_reasons
+    };
+    update_tray_tooltip(tray_icon, is_paused, combined_reasons);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -765,6 +915,7 @@ pub fn handle_tray_action(
     config_path: &Path,
     tray_icon: &tray_icon::TrayIcon,
     controls: &mut TrayControls,
+    mut event_host: Option<&mut ArcPaperEventHost>,
 ) -> TrayOutcome {
     match action {
         TrayAction::UploadWallpaper(target) => {
@@ -1003,6 +1154,166 @@ pub fn handle_tray_action(
             );
         }
 
+        TrayAction::SetBatteryPolicy(policy) => {
+            let mut state = wp_state.borrow_mut();
+            state.power.battery_policy = policy;
+            save_config(config_path, &state);
+            drop(state);
+
+            if let Some(ref mut host) = event_host {
+                host.set_battery_policy(policy);
+            }
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::RebuildTrayOnly,
+            );
+        }
+
+        TrayAction::TogglePauseOnLock => {
+            let mut state = wp_state.borrow_mut();
+            state.power.pause_on_lock = !state.power.pause_on_lock;
+            let pause_on_lock = state.power.pause_on_lock;
+            save_config(config_path, &state);
+            drop(state);
+
+            if let Some(ref mut host) = event_host {
+                host.set_pause_on_lock(pause_on_lock);
+            }
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::RebuildTrayOnly,
+            );
+        }
+
+        TrayAction::TogglePauseOnRemote => {
+            let mut state = wp_state.borrow_mut();
+            state.power.pause_on_remote = !state.power.pause_on_remote;
+            let pause_on_remote = state.power.pause_on_remote;
+            save_config(config_path, &state);
+            drop(state);
+
+            if let Some(ref mut host) = event_host {
+                host.set_pause_on_remote(pause_on_remote);
+            }
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::RebuildTrayOnly,
+            );
+        }
+
+        TrayAction::TogglePauseOnDisplayOff => {
+            let mut state = wp_state.borrow_mut();
+            state.power.pause_on_display_off = !state.power.pause_on_display_off;
+            let pause_on_display_off = state.power.pause_on_display_off;
+            save_config(config_path, &state);
+            drop(state);
+
+            if let Some(ref mut host) = event_host {
+                host.set_pause_on_display_off(pause_on_display_off);
+            }
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::RebuildTrayOnly,
+            );
+        }
+
+        TrayAction::ToggleExclusiveFullscreen => {
+            let mut state = wp_state.borrow_mut();
+            state.power.detect_exclusive_fullscreen = !state.power.detect_exclusive_fullscreen;
+            let detect = state.power.detect_exclusive_fullscreen;
+            save_config(config_path, &state);
+            drop(state);
+
+            crate::app::winevent::set_detect_exclusive_fullscreen(detect);
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::RebuildTrayOnly,
+            );
+        }
+
+        TrayAction::ToggleReduceMotion => {
+            let mut state = wp_state.borrow_mut();
+            state.power.follow_reduce_motion = !state.power.follow_reduce_motion;
+            let follow = state.power.follow_reduce_motion;
+            save_config(config_path, &state);
+            drop(state);
+
+            if let Some(ref mut host) = event_host {
+                host.set_follow_reduce_motion(follow);
+            }
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::RebuildTrayOnly,
+            );
+        }
+
+        TrayAction::ToggleAdaptiveFps => {
+            let mut state = wp_state.borrow_mut();
+            state.power.adaptive_fps = !state.power.adaptive_fps;
+            save_config(config_path, &state);
+            drop(state);
+
+            sync_manager_and_rebuild_tray(
+                manager,
+                workerw_hwnd,
+                current_monitors,
+                &wp_state.borrow(),
+                current_coverage_map,
+                saved_wallpapers_dir,
+                tray_icon,
+                controls,
+                ManagerSyncMode::RebuildTrayOnly,
+            );
+        }
+
         TrayAction::CheckUpdates => {
             std::thread::spawn(check_for_updates);
         }
@@ -1136,6 +1447,54 @@ mod tests {
                 .actions
                 .values()
                 .any(|a| *a == TrayAction::SetDisplayMode(crate::app::config::DisplayMode::Span))
+        );
+
+        // Verify Power actions exist
+        assert!(
+            controls_1.actions.values().any(
+                |a| *a == TrayAction::SetBatteryPolicy(crate::power::BatteryPolicy::AlwaysPlay)
+            )
+        );
+        assert!(controls_1.actions.values().any(|a| *a
+            == TrayAction::SetBatteryPolicy(crate::power::BatteryPolicy::PauseOnBatterySaver)));
+        assert!(controls_1.actions.values().any(
+            |a| *a == TrayAction::SetBatteryPolicy(crate::power::BatteryPolicy::PauseOnBattery)
+        ));
+        assert!(
+            controls_1
+                .actions
+                .values()
+                .any(|a| *a == TrayAction::TogglePauseOnLock)
+        );
+        assert!(
+            controls_1
+                .actions
+                .values()
+                .any(|a| *a == TrayAction::TogglePauseOnRemote)
+        );
+        assert!(
+            controls_1
+                .actions
+                .values()
+                .any(|a| *a == TrayAction::TogglePauseOnDisplayOff)
+        );
+        assert!(
+            controls_1
+                .actions
+                .values()
+                .any(|a| *a == TrayAction::ToggleExclusiveFullscreen)
+        );
+        assert!(
+            controls_1
+                .actions
+                .values()
+                .any(|a| *a == TrayAction::ToggleReduceMotion)
+        );
+        assert!(
+            controls_1
+                .actions
+                .values()
+                .any(|a| *a == TrayAction::ToggleAdaptiveFps)
         );
 
         // In single monitor: global controls target None, no Some(MonitorId)
@@ -1296,5 +1655,43 @@ mod tests {
             PauseReason::empty(),
         );
         assert_eq!(map_empty.get(&mon1.id), Some(&false));
+    }
+
+    #[test]
+    fn test_format_tray_tooltip_dominant_reasons() {
+        assert_eq!(format_tray_tooltip(false, PauseReason::empty()), "ArcPaper");
+        assert_eq!(
+            format_tray_tooltip(true, PauseReason::empty()),
+            "ArcPaper - Paused"
+        );
+        assert_eq!(
+            format_tray_tooltip(true, PauseReason::BATTERY_SAVER),
+            "ArcPaper - Paused (Battery Saver Active)"
+        );
+        assert_eq!(
+            format_tray_tooltip(true, PauseReason::BATTERY),
+            "ArcPaper - Paused (Running on Battery)"
+        );
+        assert_eq!(
+            format_tray_tooltip(true, PauseReason::SESSION_LOCKED),
+            "ArcPaper - Paused (Session Locked)"
+        );
+        assert_eq!(
+            format_tray_tooltip(true, PauseReason::REMOTE_SESSION),
+            "ArcPaper - Paused (Remote Desktop Active)"
+        );
+        assert_eq!(
+            format_tray_tooltip(true, PauseReason::DISPLAY_OFF),
+            "ArcPaper - Paused (Display Turned Off)"
+        );
+        assert_eq!(
+            format_tray_tooltip(true, PauseReason::MANUAL),
+            "ArcPaper - Paused (Manually Paused)"
+        );
+        // Precedence: SUSPENDED > BATTERY_SAVER
+        assert_eq!(
+            format_tray_tooltip(true, PauseReason::SUSPENDED | PauseReason::BATTERY_SAVER),
+            "ArcPaper - Paused (System Suspended)"
+        );
     }
 }

@@ -27,7 +27,7 @@ use windows::Win32::Foundation::HWND;
 #[cfg(windows)]
 use crate::app::log::{LogLevel, log_throttled, log_with_level};
 #[cfg(windows)]
-pub use autopause::{AutoPause, FramePacer};
+pub use autopause::{AutoPause, FramePacer, compute_adaptive_target_fps};
 #[cfg(windows)]
 pub use decoder::{DecodedFrame, Decoder};
 pub use demux::{Demuxer, VideoCodec};
