@@ -1,6 +1,6 @@
 //! System tray icon rendering and hierarchical menu builder.
 
-use super::autopause_monitor::resolve_effective_pause;
+use super::PauseReason;
 use super::autostart::{disable_autostart, enable_autostart, is_autostart_enabled};
 use super::config::{AppConfig, DisplayMode, ResolvedMonitorConfig, save_config};
 use super::log::{LogLevel, log_msg, log_with_level};
@@ -538,14 +538,52 @@ pub fn compute_effective_paused_map(
     config: &AppConfig,
     coverage_map: &BTreeMap<MonitorId, bool>,
 ) -> BTreeMap<MonitorId, bool> {
+    compute_effective_paused_map_with_reasons(monitors, config, coverage_map, PauseReason::empty())
+}
+
+/// Computes effective pause map combining per-monitor coverage with global pause reasons.
+pub fn compute_effective_paused_map_with_reasons(
+    monitors: &[MonitorInfo],
+    config: &AppConfig,
+    coverage_map: &BTreeMap<MonitorId, bool>,
+    global_reasons: PauseReason,
+) -> BTreeMap<MonitorId, bool> {
     let mut map = BTreeMap::new();
     for mon in monitors {
         let covered = coverage_map.get(&mon.id).copied().unwrap_or(false);
         let resolved = config.resolve_for_monitor(&mon.id);
-        let effective = resolve_effective_pause(covered, resolved.is_manually_paused);
+        let mut global = global_reasons;
+        if resolved.is_manually_paused {
+            global.insert(PauseReason::MANUAL);
+        }
+        let monitor = if covered {
+            PauseReason::COVERED
+        } else {
+            PauseReason::empty()
+        };
+        let effective = crate::app::pause::resolve_effective_monitor_pause(global, monitor);
         map.insert(mon.id.clone(), effective);
     }
     map
+}
+
+/// Applies effective pause states across all monitors and trims working set if all monitors are paused.
+pub fn sync_effective_pause(
+    manager: &mut Option<WallpaperManager>,
+    monitors: &[MonitorInfo],
+    config: &AppConfig,
+    coverage: &BTreeMap<MonitorId, bool>,
+    global_reasons: PauseReason,
+) -> BTreeMap<MonitorId, bool> {
+    let effective =
+        compute_effective_paused_map_with_reasons(monitors, config, coverage, global_reasons);
+    if let Some(mgr) = manager.as_mut() {
+        mgr.update_pause_states(config, &effective);
+    }
+    if !effective.is_empty() && effective.values().all(|&p| p) {
+        crate::arc_player::AutoPause::trim_working_set();
+    }
+    effective
 }
 
 pub fn collect_native_fps(
@@ -603,9 +641,40 @@ pub fn sync_manager_and_rebuild_tray(
     controls: &mut TrayControls,
     sync_mode: ManagerSyncMode,
 ) {
+    sync_manager_and_rebuild_tray_with_reasons(
+        manager,
+        workerw_hwnd,
+        current_monitors,
+        config,
+        current_coverage_map,
+        saved_wallpapers_dir,
+        tray_icon,
+        controls,
+        sync_mode,
+        PauseReason::empty(),
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn sync_manager_and_rebuild_tray_with_reasons(
+    manager: &mut Option<WallpaperManager>,
+    workerw_hwnd: HWND,
+    current_monitors: &[MonitorInfo],
+    config: &AppConfig,
+    current_coverage_map: &BTreeMap<MonitorId, bool>,
+    saved_wallpapers_dir: &Path,
+    tray_icon: &tray_icon::TrayIcon,
+    controls: &mut TrayControls,
+    sync_mode: ManagerSyncMode,
+    global_reasons: PauseReason,
+) {
     if sync_mode.requires_manager_sync() {
-        let effective_paused =
-            compute_effective_paused_map(current_monitors, config, current_coverage_map);
+        let effective_paused = compute_effective_paused_map_with_reasons(
+            current_monitors,
+            config,
+            current_coverage_map,
+            global_reasons,
+        );
         if let Some(mgr) = manager.as_mut() {
             if sync_mode.requires_topology_sync() {
                 mgr.apply_topology_and_config(
@@ -1199,5 +1268,33 @@ mod tests {
         config.is_manually_paused = true;
         let map = compute_effective_paused_map(&monitors, &config, &coverage);
         assert_eq!(map.get(&mon1.id), Some(&true));
+
+        // Global pause reason: Battery Saver
+        config.is_manually_paused = false;
+        let map_global = compute_effective_paused_map_with_reasons(
+            &monitors,
+            &config,
+            &coverage,
+            PauseReason::BATTERY_SAVER,
+        );
+        assert_eq!(map_global.get(&mon1.id), Some(&true));
+
+        // Global pause reason: Session Locked
+        let map_locked = compute_effective_paused_map_with_reasons(
+            &monitors,
+            &config,
+            &coverage,
+            PauseReason::SESSION_LOCKED,
+        );
+        assert_eq!(map_locked.get(&mon1.id), Some(&true));
+
+        // Global pause reason: Empty
+        let map_empty = compute_effective_paused_map_with_reasons(
+            &monitors,
+            &config,
+            &coverage,
+            PauseReason::empty(),
+        );
+        assert_eq!(map_empty.get(&mon1.id), Some(&false));
     }
 }

@@ -5,6 +5,7 @@ fn main() {}
 
 #[cfg(windows)]
 mod windows_app {
+    use arc_paper::app::PauseReason;
     use arc_paper::app::autopause_monitor::spawn_multi_monitor_thread;
     use arc_paper::app::config::{AppConfig, load_config, save_config};
     use arc_paper::app::event_host::{ArcPaperEventHost, HostEvent};
@@ -19,10 +20,11 @@ mod windows_app {
     #[allow(unused_imports)]
     pub(crate) use arc_paper::app::tray::ManagerSyncMode;
     use arc_paper::app::tray::{
-        TrayOutcome, build_initial_tray_icon, collect_native_fps, compute_effective_paused_map,
-        handle_topology_change_if_needed, handle_tray_action,
+        TrayOutcome, build_initial_tray_icon, collect_native_fps,
+        compute_effective_paused_map_with_reasons, handle_topology_change_if_needed,
+        handle_tray_action, sync_effective_pause,
     };
-    use arc_paper::arc_player::{AutoPause, WallpaperManager};
+    use arc_paper::arc_player::WallpaperManager;
     use arc_paper::display::topology::DisplayDebounce;
     use arc_paper::display::{MonitorId, enumerate_monitors};
     use arc_paper::workerw;
@@ -114,10 +116,38 @@ mod windows_app {
             log_msg(&format!("[ArcPaper] Active startup wallpaper: {}", name));
         }
 
-        let effective_paused = compute_effective_paused_map(
+        let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+
+        let proxy_event_host = event_loop.create_proxy();
+        let mut current_global_reasons = PauseReason::empty();
+        let event_host = match ArcPaperEventHost::new(move |event| {
+            let _ = proxy_event_host.send_event(UserEvent::Host(event));
+        }) {
+            Ok(host) => {
+                current_global_reasons = host.current_global_reasons();
+                Some(host)
+            }
+            Err(e) => {
+                log_with_level(
+                    LogLevel::Error,
+                    &format!("[ArcPaper] Failed to initialize ArcPaperEventHost: {e}"),
+                );
+                None
+            }
+        };
+
+        if !current_global_reasons.is_empty() {
+            log_msg(&format!(
+                "[ArcPaper] Initial global pause reasons: {:?}",
+                current_global_reasons
+            ));
+        }
+
+        let effective_paused = compute_effective_paused_map_with_reasons(
             &current_monitors,
             &wp_state.borrow(),
             &current_coverage_map,
+            current_global_reasons,
         );
 
         if let Some(ref mut mgr) = manager {
@@ -129,8 +159,6 @@ mod windows_app {
                 &saved_wallpapers_dir,
             );
         }
-
-        let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
         let (fps_map, global_fps) = if let Some(ref mgr) = manager {
             collect_native_fps(mgr, &current_monitors, 60)
@@ -151,20 +179,6 @@ mod windows_app {
         MenuEvent::set_event_handler(Some(move |event| {
             let _ = proxy_tray_cb.send_event(UserEvent::TrayMenu(event));
         }));
-
-        let proxy_event_host = event_loop.create_proxy();
-        let event_host = match ArcPaperEventHost::new(move |event| {
-            let _ = proxy_event_host.send_event(UserEvent::Host(event));
-        }) {
-            Ok(host) => Some(host),
-            Err(e) => {
-                log_with_level(
-                    LogLevel::Error,
-                    &format!("[ArcPaper] Failed to initialize ArcPaperEventHost: {e}"),
-                );
-                None
-            }
-        };
 
         let proxy_autopause = event_loop.create_proxy();
         spawn_multi_monitor_thread(Arc::clone(&monitors_snapshot), move |coverage| {
@@ -215,23 +229,57 @@ mod windows_app {
                         }
                     }
                     current_coverage_map = coverage_map;
-                    let effective_paused = compute_effective_paused_map(
+                    sync_effective_pause(
+                        &mut manager,
                         &current_monitors,
                         &wp_state.borrow(),
                         &current_coverage_map,
+                        current_global_reasons,
                     );
-                    if let Some(ref mut mgr) = manager {
-                        mgr.update_pause_states(&wp_state.borrow(), &effective_paused);
-                    }
-                    let all_paused =
-                        !effective_paused.is_empty() && effective_paused.values().all(|&p| p);
-                    if all_paused {
-                        AutoPause::trim_working_set();
-                    }
                 }
 
                 Event::UserEvent(UserEvent::Host(HostEvent::DisplayTopologyDirty)) => {
                     display_debounce.trigger_at(std::time::Instant::now());
+                }
+
+                Event::UserEvent(UserEvent::Host(HostEvent::GlobalPauseReasonsChanged(reasons))) => {
+                    let prev_reasons = current_global_reasons;
+                    current_global_reasons = reasons;
+                    if prev_reasons != current_global_reasons {
+                        if let Some(label) = current_global_reasons.dominant_reason_label() {
+                            log_msg(&format!(
+                                "[ArcPaper] Global pause reasons changed: {:?} (Dominant: {})",
+                                current_global_reasons, label
+                            ));
+                        } else {
+                            log_msg("[ArcPaper] Global pause reasons cleared. Resuming active playback.");
+                        }
+                    }
+                    sync_effective_pause(
+                        &mut manager,
+                        &current_monitors,
+                        &wp_state.borrow(),
+                        &current_coverage_map,
+                        current_global_reasons,
+                    );
+                }
+
+                Event::UserEvent(UserEvent::Host(HostEvent::ResumeFromSuspend)) => {
+                    log_msg("[ArcPaper] System resumed from suspend. Validating D3D11 device health...");
+                    let device_ok = if let Some(ref mut mgr) = manager {
+                        mgr.validate_or_recover_devices()
+                    } else {
+                        true
+                    };
+                    if device_ok {
+                        sync_effective_pause(
+                            &mut manager,
+                            &current_monitors,
+                            &wp_state.borrow(),
+                            &current_coverage_map,
+                            current_global_reasons,
+                        );
+                    }
                 }
 
                 Event::UserEvent(UserEvent::Host(HostEvent::ExplorerRestarted)) => {
@@ -247,10 +295,11 @@ mod windows_app {
                     }
                     if let Some(ref mut mgr) = manager {
                         mgr.reparent_to_workerw(new_workerw, &current_monitors);
-                        let effective_paused = compute_effective_paused_map(
+                        let effective_paused = compute_effective_paused_map_with_reasons(
                             &current_monitors,
                             &wp_state.borrow(),
                             &current_coverage_map,
+                            current_global_reasons,
                         );
                         mgr.apply_topology_and_config(
                             new_workerw,

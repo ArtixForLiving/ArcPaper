@@ -1845,6 +1845,35 @@ impl WallpaperManager {
         None
     }
 
+    /// Validates whether the Direct3D 11 device and swapchains survived a power state transition (e.g. system sleep/resume).
+    /// If device-lost or invalid state is detected, flags a recovery fault and begins recovery.
+    /// Returns `true` if devices are healthy and valid, or `false` if recovery was initiated.
+    pub fn validate_or_recover_devices(&mut self) -> bool {
+        let is_healthy = if let Some(ref gfx) = self.graphics {
+            let hr = gfx.device_removed_reason();
+            hr == windows::Win32::Foundation::S_OK
+        } else {
+            false
+        };
+
+        if !is_healthy {
+            log_with_level(
+                LogLevel::Warn,
+                "[WallpaperManager] D3D11 device lost or reset during suspend/resume. Initiating recovery...",
+            );
+            let epoch = self.recovery.lock().unwrap().epoch();
+            self.recovery.lock().unwrap().flag_fault(epoch);
+            self.poll_recovery();
+            false
+        } else {
+            log_with_level(
+                LogLevel::Info,
+                "[WallpaperManager] D3D11 device health verified OK on resume from suspend.",
+            );
+            true
+        }
+    }
+
     /// Performs non-blocking recovery polling, rebuilding D3D11 resources if a GPU device-lost was flagged.
     pub fn poll_recovery(&mut self) {
         let fault_flagged = self.recovery.lock().unwrap().is_fault_flagged();
@@ -2452,6 +2481,7 @@ mod tests {
         );
 
         assert_eq!(mgr.monitor_count(), 2);
+        assert!(mgr.validate_or_recover_devices());
         mgr.poll_recovery();
         mgr.reparent_to_workerw(HWND::default(), &monitors);
 
