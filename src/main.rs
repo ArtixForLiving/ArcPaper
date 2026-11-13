@@ -85,16 +85,14 @@ mod windows_app {
         let mut current_monitors = enumerate_monitors();
         let monitors_snapshot = Arc::new(RwLock::new(current_monitors.clone()));
 
-        let mut manager = match WallpaperManager::new(workerw_hwnd) {
-            Ok(m) => Some(m),
-            Err(e) => {
+        let mut manager = WallpaperManager::new(workerw_hwnd)
+            .map_err(|e| {
                 log_with_level(
                     LogLevel::Error,
                     &format!("[ArcPaper] Init WallpaperManager error: {e}"),
                 );
-                None
-            }
-        };
+            })
+            .ok();
 
         let wp_state: Rc<RefCell<AppConfig>> = Rc::new(RefCell::new(load_config(&config_path)));
         let mut current_coverage_map: BTreeMap<MonitorId, bool> = BTreeMap::new();
@@ -266,11 +264,13 @@ mod windows_app {
 
                 Event::UserEvent(UserEvent::Host(HostEvent::ResumeFromSuspend)) => {
                     log_msg("[ArcPaper] System resumed from suspend. Validating D3D11 device health...");
-                    let device_ok = if let Some(ref mut mgr) = manager {
-                        mgr.validate_or_recover_devices()
-                    } else {
-                        true
-                    };
+                    current_global_reasons = event_host.as_ref().map_or_else(
+                        || current_global_reasons.difference(PauseReason::SUSPENDED),
+                        |h| h.current_global_reasons(),
+                    );
+                    let device_ok = manager
+                        .as_mut()
+                        .is_none_or(|m| m.validate_or_recover_devices());
                     if device_ok {
                         sync_effective_pause(
                             &mut manager,

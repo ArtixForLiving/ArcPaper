@@ -137,7 +137,14 @@ mod imp {
                         }
                         PBT_APMRESUMEAUTOMATIC => {
                             ctx.is_suspended = false;
-                            ctx.recompute_and_dispatch();
+                            ctx.last_global_reasons =
+                                evaluate_battery_pause(ctx.battery_policy, &ctx.power_status)
+                                    | evaluate_session_pause(
+                                        ctx.is_locked,
+                                        ctx.is_remote,
+                                        ctx.is_display_off,
+                                        false,
+                                    );
                             (ctx.on_event)(HostEvent::ResumeFromSuspend);
                             return LRESULT(1);
                         }
