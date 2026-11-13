@@ -60,7 +60,7 @@ mod windows_app {
         lparam: LPARAM,
     ) -> LRESULT {
         use windows::Win32::UI::WindowsAndMessaging::{
-            DefWindowProcW, SetWindowLongPtrW, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED,
+            DefWindowProcW, EndMenu, SetWindowLongPtrW, WM_CREATE, WM_DISPLAYCHANGE, WM_DPICHANGED,
             WM_SETTINGCHANGE,
         };
 
@@ -82,6 +82,7 @@ mod windows_app {
                 const SPI_SETLOGICALDPIOVERRIDE: usize = 0x009F;
 
                 if msg == WM_DISPLAYCHANGE || msg == WM_DPICHANGED {
+                    let _ = EndMenu();
                     let _ = ctx.proxy.send_event(UserEvent::DisplayTopologyDirty);
                     return LRESULT(0);
                 } else if msg == WM_SETTINGCHANGE {
@@ -314,6 +315,9 @@ mod windows_app {
             .unwrap_or(false);
 
         if diff.has_changes() || monitor_count_mismatch {
+            unsafe {
+                let _ = windows::Win32::UI::WindowsAndMessaging::EndMenu();
+            }
             log_msg(&format!(
                 "[ArcPaper] Display topology changed: added={}, removed={}, changed={}, unchanged={}. Updating layout...",
                 diff.added.len(),
