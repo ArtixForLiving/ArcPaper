@@ -65,3 +65,7 @@ $RECYCLE.BIN/
 measure.ps1
 run.bat
 .superpowers/
+
+# ─── Documentation & Plans (Keep local only) ──────────────────────────────────
+/docs/
+
