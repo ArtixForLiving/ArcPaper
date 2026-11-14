@@ -382,16 +382,11 @@ pub unsafe fn is_foreground_covering_screen(
         }
 
         let mut rect = RECT::default();
-        if GetWindowRect(fg, &mut rect).is_ok()
+        GetWindowRect(fg, &mut rect).is_ok()
             && rect.left <= 0
             && rect.top <= 0
             && rect.right >= screen_w
             && rect.bottom >= screen_h
-        {
-            return true;
-        }
-
-        false
     }
 }
 
