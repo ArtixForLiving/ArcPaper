@@ -91,6 +91,11 @@ impl SystemProbe for WindowsSystemProbe {
                     {
                         if let Ok(state) = power_key.get_value::<u32, _>("EnergySaverState") {
                             battery_saver = state == 1;
+                            if battery_saver {
+                                crate::app::log::log_msg(
+                                    "[ArcPaper] System probe: EnergySaverState registry fallback detected active saver (state=1)",
+                                );
+                            }
                         }
                     }
                 }

@@ -56,14 +56,21 @@ fn library_crate_exports_core_modules() {
         let _ = WTS_REMOTE_DISCONNECT;
         let _ = WTS_CONSOLE_DISCONNECT;
         let _ = GUID_ACDC_POWER_SOURCE;
-        assert_eq!(
-            arc_paper::power::GUID_ENERGY_SAVER_STATUS,
-            windows::core::GUID::from_u128(0x550e8400_e29b_41d4_a716_446655440000)
-        );
         let _ = GUID_BATTERY_PERCENTAGE_REMAINING;
         let _ = GUID_CONSOLE_DISPLAY_STATE;
         let _ = PBT_POWERSETTINGCHANGE;
         let _ = PBT_APMSUSPEND;
         let _ = PBT_APMRESUMEAUTOMATIC;
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn test_windows_11_24h2_energy_saver_guid_official() {
+    // Official Windows SDK 10.0.26100.0 winnt.h line 16964:
+    // DEFINE_GUID( GUID_ENERGY_SAVER_STATUS, 0x550e8400, 0xe29b, 0x41d4, 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00);
+    assert_eq!(
+        arc_paper::power::GUID_ENERGY_SAVER_STATUS,
+        windows::core::GUID::from_u128(0x550e8400_e29b_41d4_a716_446655440000)
+    );
 }

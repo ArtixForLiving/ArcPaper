@@ -183,6 +183,15 @@ mod imp {
                                         == windows::Win32::System::SystemServices::GUID_POWER_SAVING_STATUS
                                         || guid == crate::power::GUID_ENERGY_SAVER_STATUS
                                     {
+                                        let guid_label = if guid == crate::power::GUID_ENERGY_SAVER_STATUS {
+                                            "GUID_ENERGY_SAVER_STATUS (Modern Win11 24H2)"
+                                        } else {
+                                            "GUID_POWER_SAVING_STATUS (Legacy)"
+                                        };
+                                        crate::app::log::log_msg(&format!(
+                                            "[ArcPaper] Received power broadcast {}: val={}",
+                                            guid_label, val
+                                        ));
                                         // 0 = Battery/Energy Saver off, >= 1 = Battery/Energy Saver on
                                         ctx.power_status.battery_saver = val != 0;
                                         ctx.recompute_and_dispatch();
