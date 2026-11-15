@@ -27,5 +27,10 @@ pub use system_probe::{
 #[cfg(windows)]
 pub use windows::Win32::System::SystemServices::{
     GUID_ACDC_POWER_SOURCE, GUID_BATTERY_PERCENTAGE_REMAINING, GUID_CONSOLE_DISPLAY_STATE,
-    GUID_POWER_SAVING_STATUS as GUID_ENERGY_SAVER_STATUS,
+    GUID_POWER_SAVING_STATUS,
 };
+
+/// Power setting notification GUID for Windows 11 24H2+ Energy Saver (`550e8400-e29b-41d4-a716-446655440000`).
+#[cfg(windows)]
+pub const GUID_ENERGY_SAVER_STATUS: windows::core::GUID =
+    windows::core::GUID::from_u128(0x550e8400_e29b_41d4_a716_446655440000);

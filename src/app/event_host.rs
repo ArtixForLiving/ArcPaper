@@ -181,8 +181,9 @@ mod imp {
                                         ctx.recompute_and_dispatch();
                                     } else if guid
                                         == windows::Win32::System::SystemServices::GUID_POWER_SAVING_STATUS
+                                        || guid == crate::power::GUID_ENERGY_SAVER_STATUS
                                     {
-                                        // 0 = Battery Saver off, 1 = Battery Saver on
+                                        // 0 = Battery/Energy Saver off, >= 1 = Battery/Energy Saver on
                                         ctx.power_status.battery_saver = val != 0;
                                         ctx.recompute_and_dispatch();
                                     } else if guid
@@ -312,6 +313,7 @@ mod imp {
                 let guids = [
                     windows::Win32::System::SystemServices::GUID_ACDC_POWER_SOURCE,
                     windows::Win32::System::SystemServices::GUID_POWER_SAVING_STATUS,
+                    crate::power::GUID_ENERGY_SAVER_STATUS,
                     windows::Win32::System::SystemServices::GUID_BATTERY_PERCENTAGE_REMAINING,
                     windows::Win32::System::SystemServices::GUID_CONSOLE_DISPLAY_STATE,
                 ];

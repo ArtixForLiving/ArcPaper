@@ -80,7 +80,20 @@ impl SystemProbe for WindowsSystemProbe {
                 // 255 indicates an unknown battery status.
                 let has_battery = (sps.BatteryFlag & 128) == 0
                     && (sps.BatteryFlag != 255 || sps.BatteryLifePercent <= 100);
-                let battery_saver = sps.SystemStatusFlag == 1;
+                let mut battery_saver = sps.SystemStatusFlag == 1;
+                if !battery_saver {
+                    // Fallback for Windows 11 24H2+ Energy Saver manual toggle
+                    if let Ok(power_key) = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE)
+                        .open_subkey_with_flags(
+                            r"SYSTEM\CurrentControlSet\Control\Power",
+                            winreg::enums::KEY_READ,
+                        )
+                    {
+                        if let Ok(state) = power_key.get_value::<u32, _>("EnergySaverState") {
+                            battery_saver = state == 1;
+                        }
+                    }
+                }
                 let battery_percent = if sps.BatteryLifePercent <= 100 {
                     Some(sps.BatteryLifePercent)
                 } else {

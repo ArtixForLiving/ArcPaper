@@ -56,7 +56,10 @@ fn library_crate_exports_core_modules() {
         let _ = WTS_REMOTE_DISCONNECT;
         let _ = WTS_CONSOLE_DISCONNECT;
         let _ = GUID_ACDC_POWER_SOURCE;
-        let _ = arc_paper::power::GUID_ENERGY_SAVER_STATUS;
+        assert_eq!(
+            arc_paper::power::GUID_ENERGY_SAVER_STATUS,
+            windows::core::GUID::from_u128(0x550e8400_e29b_41d4_a716_446655440000)
+        );
         let _ = GUID_BATTERY_PERCENTAGE_REMAINING;
         let _ = GUID_CONSOLE_DISPLAY_STATE;
         let _ = PBT_POWERSETTINGCHANGE;
