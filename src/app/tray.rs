@@ -993,6 +993,9 @@ pub fn handle_tray_action(
                             let entry = state.monitors.entry(mid.as_str().to_string()).or_default();
                             entry.active_video = Some(file_name.to_string());
                             entry.is_manually_paused = Some(false);
+                            if state.active_video.is_none() {
+                                state.active_video = Some(file_name.to_string());
+                            }
                         }
                         None => {
                             state.active_video = Some(file_name.to_string());
@@ -1022,8 +1025,11 @@ pub fn handle_tray_action(
             match &monitor_id {
                 Some(mid) => {
                     let entry = state.monitors.entry(mid.as_str().to_string()).or_default();
-                    entry.active_video = Some(file);
+                    entry.active_video = Some(file.clone());
                     entry.is_manually_paused = Some(false);
+                    if state.active_video.is_none() {
+                        state.active_video = Some(file);
+                    }
                 }
                 None => {
                     state.active_video = Some(file);
@@ -1049,6 +1055,17 @@ pub fn handle_tray_action(
         TrayAction::SetDisplayMode(new_mode) => {
             let mut state = wp_state.borrow_mut();
             state.display_mode = new_mode;
+            if (new_mode == DisplayMode::Clone || new_mode == DisplayMode::Span)
+                && state.active_video.is_none()
+            {
+                let primary_id = current_monitors
+                    .iter()
+                    .find(|m| m.is_primary)
+                    .map(|m| m.id.as_str());
+                state.active_video = primary_id
+                    .and_then(|pid| state.monitors.get(pid).and_then(|ov| ov.active_video.clone()))
+                    .or_else(|| state.monitors.values().find_map(|m| m.active_video.clone()));
+            }
             save_config(config_path, &state);
             drop(state);
 

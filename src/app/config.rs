@@ -170,14 +170,21 @@ impl AppConfig {
                 .unwrap_or(false);
 
         match self.display_mode {
-            DisplayMode::Clone | DisplayMode::Span => ResolvedMonitorConfig {
-                active_video: self.active_video.clone(),
-                speed: self.speed,
-                brightness: self.brightness,
-                fit_mode: self.fit_mode.clone(),
-                is_manually_paused: effective_paused,
-                target_fps: self.target_fps,
-            },
+            DisplayMode::Clone | DisplayMode::Span => {
+                let active_video = self.active_video.clone().or_else(|| {
+                    per_mon
+                        .and_then(|ov| ov.active_video.clone())
+                        .or_else(|| self.monitors.values().find_map(|m| m.active_video.clone()))
+                });
+                ResolvedMonitorConfig {
+                    active_video,
+                    speed: self.speed,
+                    brightness: self.brightness,
+                    fit_mode: self.fit_mode.clone(),
+                    is_manually_paused: effective_paused,
+                    target_fps: self.target_fps,
+                }
+            }
             DisplayMode::PerMonitor => match per_mon {
                 Some(ov) => ResolvedMonitorConfig {
                     active_video: ov
@@ -232,6 +239,14 @@ pub fn sanitize_config(mut cfg: AppConfig) -> (AppConfig, Vec<String>) {
     {
         cfg.active_video = None;
         warnings.push("Normalized empty active_video to None".to_string());
+    }
+
+    if cfg.active_video.is_none()
+        && (cfg.display_mode == DisplayMode::Clone || cfg.display_mode == DisplayMode::Span)
+    {
+        if let Some(inherited) = cfg.monitors.values().find_map(|m| m.active_video.clone()) {
+            cfg.active_video = Some(inherited);
+        }
     }
 
     if !cfg.speed.is_finite() || cfg.speed < 0.1 || cfg.speed > 4.0 {
@@ -793,5 +808,12 @@ mod tests {
         assert_eq!(res_span.fit_mode, "cover");
         assert_eq!(res_span.target_fps, Some(60));
         assert!(res_span.is_manually_paused);
+
+        // Fallback test when global active_video is None
+        cfg.active_video = None;
+        let res_clone_fallback = cfg.resolve_for_monitor(&mon1);
+        assert_eq!(res_clone_fallback.active_video.as_deref(), Some("mon1.mp4"));
+        let res_span_fallback = cfg.resolve_for_monitor(&mon1);
+        assert_eq!(res_span_fallback.active_video.as_deref(), Some("mon1.mp4"));
     }
 }
